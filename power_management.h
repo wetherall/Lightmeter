@@ -2,18 +2,35 @@
  * Power Management Functions
  * 
  * This header file defines functions for managing power consumption,
- * including sleep modes and wake-up handling. Power management is
- * critical for battery-powered devices to extend operational life.
+ * including sleep modes, wake-up handling, and battery monitoring.
  * 
- * The AVR microcontroller has several sleep modes with different
- * power-saving levels. In this project, we use the deepest sleep
- * mode (Power-Down) to minimize power consumption when idle.
+ * The design now uses a single LIR2450 rechargeable lithium coin cell
+ * instead of the previous 3 LR44 batteries, requiring appropriate voltage
+ * monitoring and power management.
  */
 
 #ifndef POWER_MANAGEMENT_H
 #define POWER_MANAGEMENT_H
 
 #include <stdint.h>
+
+/**
+ * CONSTANTS AND DEFINITIONS
+ */
+
+/* Battery monitoring */
+#define BATTERY_ADC_PIN      PIN2_bm    // Battery level ADC input on PC2
+#define BATTERY_ADC_PORT     PORTC      // Port for battery ADC pin
+
+/* Battery voltage thresholds for LIR2450 cell */
+#define BATTERY_FULL_MV      4200       // Fully charged LIR2450 (4.2V)
+#define BATTERY_NOMINAL_MV   3700       // Nominal voltage
+#define BATTERY_LOW_MV       3300       // Low battery warning threshold
+#define BATTERY_CRITICAL_MV  3000       // Critical level - protect battery from overdischarge
+
+/* Battery percentage calculation points */
+#define BATTERY_PERCENT_100  BATTERY_FULL_MV
+#define BATTERY_PERCENT_0    BATTERY_CRITICAL_MV
 
 /**
  * FUNCTION DECLARATIONS
@@ -46,7 +63,7 @@ void enter_sleep_mode(void);
  * This function:
  * 1. Disables sleep mode
  * 2. Re-enables peripherals
- * 3. Restores the shift registers to normal operation
+ * 3. Restores LED matrix to normal operation
  * 4. Puts the VEML7700 back into normal mode
  */
 void wake_from_sleep(void);
@@ -63,7 +80,30 @@ void wake_from_sleep(void);
 void configure_sleep_mode(void);
 
 /**
- * Get the battery level
+ * Initialize battery monitoring
+ * 
+ * This function initializes the ADC for battery voltage measurement:
+ * 1. Configures the ADC pin
+ * 2. Sets up the ADC with proper reference and settings
+ * 3. Enables the ADC peripheral
+ */
+void init_battery_monitoring(void);
+
+/**
+ * Get battery voltage in millivolts
+ * 
+ * This function measures the actual battery voltage by:
+ * 1. Taking an ADC reading
+ * 2. Converting the ADC value to a voltage
+ * 3. Applying any calibration factors
+ * 
+ * Returns:
+ *   The battery voltage in millivolts
+ */
+uint16_t get_battery_voltage(void);
+
+/**
+ * Get the battery level as a percentage
  * 
  * This function measures the current battery voltage and
  * converts it to a percentage (0-100).
@@ -73,5 +113,16 @@ void configure_sleep_mode(void);
  *   (0 = empty, 100 = full)
  */
 uint8_t get_battery_level(void);
+
+/**
+ * Check if battery is critically low
+ * 
+ * This function checks if the battery voltage is below the critical
+ * threshold where operation should stop to prevent damage to the battery.
+ * 
+ * Returns:
+ *   true if battery is critically low, false otherwise
+ */
+bool is_battery_critical(void);
 
 #endif /* POWER_MANAGEMENT_H */

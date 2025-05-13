@@ -8,7 +8,7 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include "veml7700.h"
-#include "i2c.h"  // Added i2c.h include
+#include "i2c.h"
 
 // Global variable to store the last lux reading
 float last_lux_reading = 0.0;
@@ -173,6 +173,10 @@ float measure_light(void) {
     veml7700_set_gain(VEML7700_GAIN_1_8);
     veml7700_set_integration_time(VEML7700_IT_100MS);
     
+    // Wait for the integration to complete
+    // 100ms integration time + 5ms margin
+    _delay_ms(105);
+    
     // Take initial reading
     float lux = veml7700_get_lux();
     uint16_t raw_als = veml7700_read_als();
@@ -182,7 +186,11 @@ float measure_light(void) {
         // Light is very bright, reduce sensitivity
         veml7700_set_gain(VEML7700_GAIN_1_8);
         veml7700_set_integration_time(VEML7700_IT_25MS);
-        _delay_ms(50); // Allow sensor to adjust
+        
+        // Allow sensor to adjust and complete integration
+        // 25ms integration time + 5ms margin
+        _delay_ms(30);
+        
         lux = veml7700_get_lux();
         raw_als = veml7700_read_als();
     }
@@ -192,7 +200,11 @@ float measure_light(void) {
         // Light is very dim, increase sensitivity
         veml7700_set_gain(VEML7700_GAIN_2);
         veml7700_set_integration_time(VEML7700_IT_800MS);
-        _delay_ms(850); // Allow sensor to adjust and complete integration
+        
+        // Allow sensor to adjust and complete integration
+        // 800ms integration time + 50ms margin
+        _delay_ms(850);
+        
         lux = veml7700_get_lux();
     }
     
