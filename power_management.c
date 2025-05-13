@@ -199,6 +199,13 @@ void enter_sleep_mode(void) {
     
     // Set all columns (cathodes) HIGH to ensure LEDs are off
     COLS_PORT.OUTSET = COL1_PIN | COL2_PIN | COL3_PIN | COL4_PIN;
+
+    /* Disable power-hungry peripherals before sleeping */
+    // Disable the ADC completely to save power
+    ADC0.CTRLA &= ~ADC_ENABLE_bm;
+    
+    // Disable I2C/TWI module when not needed
+    TWI0.MCTRLA &= ~TWI_ENABLE_bm;
     
     /* Put VEML7700 into power saving mode
      * 
@@ -256,6 +263,13 @@ void wake_from_sleep(void) {
      * preventing accidental re-entry into sleep mode.
      */
     sleep_disable();
+
+    /* Re-enable all necessary peripherals */
+    // Re-enable I2C for the light sensor
+    TWI0.MCTRLA |= TWI_ENABLE_bm;
+    
+    // Re-enable ADC for battery monitoring
+    ADC0.CTRLA |= ADC_ENABLE_bm;
     
     /* Take VEML7700 out of power saving mode
      * 

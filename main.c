@@ -345,6 +345,30 @@ void display_battery_warning(void) {
 void system_init(void) {
     // Configure GPIO pins
     init_gpio();
+
+    // Disable digital input buffers on unused pins to save power
+    // For pins that are used as outputs or special functions (not digital inputs)
+    
+    // PORTA pins that don't need digital input capability
+    PORTA.PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;  // UPDI programming pin
+    
+    // Row control pins (outputs)
+    PORTA.PIN5CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 1
+    PORTA.PIN6CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 2
+    PORTA.PIN7CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 3
+    
+    // Column control pins (outputs)
+    PORTB.PIN2CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Column 1
+    PORTB.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Column 2
+    PORTB.PIN4CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Column 3
+    PORTB.PIN5CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Column 4
+    
+    // Additional PORTC pins (outputs or unused)
+    PORTC.PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 4
+    PORTC.PIN1CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 5
+    PORTC.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 6
+    
+    // PC2 is handled in init_battery_monitoring()
     
     // Initialize I2C communication
     init_i2c();
