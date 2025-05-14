@@ -17,9 +17,37 @@ The aperture selection values adjacent to the LEDs are 1,1.4,2,2.8,4,5.6,8,11,16
 
 Software behaviour
 
-Pressing the read button will wake the device. The previously set ISO and aperture setting will be used. If no previous setting exists, it will default to 400iso and f11. A light reading will be taken from the light meter IC, in software automatically adjusting gain and read time as appropriate. Once an appropriate shutter speed is calculated for the light level of the scene, using the iso and aperture settings, the LED next to the nearest correct shutter speed should illuminate. The settings column will display the selected aperture all the time while the device is awake, apart from when a reading is being taken. The up and down buttons can be used to change the aperture setting (with the LEDs reflecting this change) and the shutter speed column LEDs should light up to reflect this adjustment too. Pressing the mode button should switch the settings LED column from displaying aperture to displaying iso. The iso display LED should flash slowly to indicate that it is showing iso not fstop. the up and down buttons now change the iso. Pressing the mode button again should switch it back to fstop. 
+Pressing the read button will wake the device. The battery level will be checked. If critically low the device will go back to sleep. If low but not critical, the bottom two LEDs will flash but normal function resumed after (This battery check is repeaetd every 30 seconds teh device is on). The previously set ISO and aperture setting will be used. If no previous setting exists, it will default to 400iso and f11. A light reading will be taken from the light meter IC, in software automatically adjusting gain and read time as appropriate. Once an appropriate shutter speed is calculated for the light level of the scene, using the iso and aperture settings, the LED next to the nearest correct shutter speed should illuminate. The settings column will display the selected aperture all the time while the device is awake, apart from when a reading is being taken. The up and down buttons can be used to change the aperture setting (with the LEDs reflecting this change) and the shutter speed column LEDs should light up to reflect this adjustment too. Pressing the mode button should switch the settings LED column from displaying aperture to displaying iso. The iso display LED should flash slowly to indicate that it is showing iso not fstop. The up and down buttons now change the iso. Pressing the mode button again should switch it back to fstop. 
 
 
 Components
 
-Component choice considerations were low price, minimal power draw for a battery powered device, availablility from places like LCSC, and abundance of example implementations. The PCB will be controlled by an ATtiny3216. The device will use a VEML7700 for lux measurement, which has a a large range of sensitivity. The four buttons will be small low profile SMD tactile buttons. The PCB would be driven by an LIR2450, which will need an apropriate charging/discharging protection and regulation hardware. Voltage will be stepped down to 3.3V by a TPS7A0533PDBZ. The LEDs will be driven by the MCU via a 4 column 6 row matrix.  In addition to the above i will need all the appropriate passive components to support the function of the various ICs described.
+Component choice considerations were low price, minimal power draw for a battery powered device, availablility from places like LCSC, and abundance of example implementations. The PCB will be controlled by an ATtiny3216. The device will use a VEML7700 for lux measurement, which has a a large range of sensitivity. The four buttons will be small low profile SMD tactile buttons. The PCB would be driven by an LIR2450, which will be managed by an STNS01, which also provides 3.1V. The LEDs will be driven by the MCU via a 4 column 6 row matrix.  In addition to the above i will need all the appropriate passive components to support the function of the various ICs described.
+
+Pins
+
+// System Pins
+PA0: UPDI Programming (reserved)
+PB0: I2C SDA for VEML7700 (TWI)
+PB1: I2C SCL for VEML7700 (TWI)
+PC2: Battery Level ADC Input
+
+// Button Pins
+PA1: Mode Button
+PA2: Read/Wake Button
+PA3: Up Button
+PA4: Down Button
+
+// LED Matrix Rows (anodes) - 6 pins
+PA5: Row 1
+PA6: Row 2
+PA7: Row 3
+PC0: Row 4
+PC1: Row 5
+PC3: Row 6
+
+// LED Matrix Columns (cathodes) - 4 pins
+PB2: Column 1 (Top Left Half - ISO/Aperture 0-5)
+PB3: Column 2 (Bottom Left Half - ISO/Aperture 6-11)
+PB4: Column 3 (Top Right Half - Shutter Speed 0-5)
+PB5: Column 4 (Bottom Right Half - Shutter Speed 6-11)
