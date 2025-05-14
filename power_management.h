@@ -125,4 +125,12 @@ uint8_t get_battery_level(void);
  */
 bool is_battery_critical(void);
 
+/**
+ * Check if battery is low but not critical
+ * 
+ * Returns:
+ *   true if battery is low but not critical, false otherwise
+ */
+bool is_battery_low(void);
+
 #endif /* POWER_MANAGEMENT_H */

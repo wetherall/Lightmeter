@@ -340,7 +340,7 @@ void init_battery_monitoring(void) {
     // Enable ADC
     ADC0.CTRLA = ADC_ENABLE_bm;
     
-    // Set ADC resolution to 10-bit and use VDD (3.3V) as reference
+    // Set ADC resolution to 10-bit and use VDD (3.1V) as reference
     ADC0.CTRLC = ADC_PRESC_DIV16_gc | ADC_REFSEL_VDDREF_gc;
     
     // Configure for single-ended input on AIN2 (PC2)
@@ -374,14 +374,14 @@ uint16_t get_battery_voltage(void) {
     
     // Calculate voltage in millivolts
     // With 3.3V reference and 10-bit ADC: each step = 3.3V/1024 = 3.22mV
-    // For a 320kΩ divider (100kΩ + 220kΩ), division factor is 100/(100+220) = 0.3125
-    // So actual battery voltage = ADC voltage * (1/0.3125) = ADC voltage * 3.2
+    // For a 690kΩ divider (220kΩ + 470kΩ), division factor is 220/(470+220) = 0.319
+    // So actual battery voltage = ADC voltage * (1/0.319) = ADC voltage * 3.13
     
     // Step 1: Convert ADC reading to voltage at the ADC pin (in mV)
-    float adc_voltage_mv = (adc_result * 3300.0) / 1024.0;
+    float adc_voltage_mv = (adc_result * 3100.0) / 1024.0;
     
     // Step 2: Calculate actual battery voltage accounting for voltage divider
-    uint16_t battery_voltage_mv = (uint16_t)(adc_voltage_mv * 3.2);
+    uint16_t battery_voltage_mv = (uint16_t)(adc_voltage_mv * 3.13);
     
     return battery_voltage_mv;
 }
@@ -411,6 +411,20 @@ uint8_t get_battery_level(void) {
     }
     
     return (uint8_t)percentage;
+}
+
+/**
+ * Check if battery is low but not critical
+ * 
+ * This function checks if the battery voltage is below the low threshold
+ * but still above the critical threshold.
+ * 
+ * Returns:
+ *   true if battery is low but not critical, false otherwise
+ */
+bool is_battery_low(void) {
+    uint16_t voltage = get_battery_voltage();
+    return (voltage < BATTERY_LOW_MV && voltage >= BATTERY_CRITICAL_MV);
 }
 
 /**
@@ -542,6 +556,13 @@ void wake_from_sleep(void) {
      * preventing accidental re-entry into sleep mode.
      */
     sleep_disable();
+
+    /* Re-enable all necessary peripherals */
+    // Re-enable I2C for the light sensor
+    TWI0.MCTRLA |= TWI_ENABLE_bm;
+    
+    // Re-enable ADC for battery monitoring
+    ADC0.CTRLA |= ADC_ENABLE_bm;
     
     /* Take VEML7700 out of power saving mode
      * 
@@ -563,4 +584,9 @@ void wake_from_sleep(void) {
      * 10ms is typically enough for I2C devices.
      */
     _delay_ms(10);
+
+    /* Check battery level - if low (but not critical), flash warning */
+    if (is_battery_low()) {
+         flash_low_battery_warning();
+    }
 }
