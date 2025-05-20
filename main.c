@@ -337,6 +337,16 @@
      PORTC.PIN0CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 4
      PORTC.PIN1CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 5
      PORTC.PIN3CTRL = PORT_ISC_INPUT_DISABLE_gc;  // Row 6
+
+    // 4 unused pins on the ATTiny3217 package:
+    // Set direction to input for all unused pins (before setting PIN*CTRL registers)
+    PORTB.DIRCLR = PIN6_bm | PIN7_bm;
+    PORTC.DIRCLR = PIN4_bm | PIN5_bm;
+    // Then configure with pull-ups and disable digital input
+    PORTB.PIN6CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
+    PORTB.PIN7CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
+    PORTC.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
+    PORTC.PIN5CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
      
      // PC2 is handled in init_battery_monitoring()
      
