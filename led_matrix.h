@@ -111,4 +111,13 @@ void map_led_to_matrix(uint8_t row, uint8_t col, uint8_t *matrix_row, uint8_t *m
 extern uint8_t led_matrix_data[TOTAL_LEDS];     // Current state of each LED (on/off)
 extern uint8_t led_brightness[TOTAL_LEDS];      // Brightness level for each LED (0=half, 1=full)
 
+
+extern uint8_t led_matrix_data[TOTAL_LEDS];     // Current state of each LED (on/off)
+extern uint8_t led_brightness[TOTAL_LEDS];      // Brightness level for each LED (0=half, 1=full)
+extern volatile uint8_t current_row;            // Current active row for matrix scanning
+extern const uint8_t column_pins[4];            // Array of column pins for LED matrix
+extern const uint8_t row_pins[6];               // Array of row pins for LED matrix
+extern const uint8_t row_ports[6];              // Array to track which port each row belongs to
+extern volatile uint8_t pwm_phase;       // PWM phase tracker for brightness control
+
 #endif /* LED_MATRIX_H */

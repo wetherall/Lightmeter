@@ -141,20 +141,16 @@
      
      // Flash the bottom two LEDs three times
      for (int i = 0; i < 3; i++) {
-         // Turn on bottom two LEDs in both columns
-         set_led(LEDS_PER_COLUMN - 1, 0, true);  // Bottom LED in ISO/aperture column
-         set_led(LEDS_PER_COLUMN - 2, 0, true);  // Second from bottom LED in ISO/aperture column
-         set_led(LEDS_PER_COLUMN - 1, 1, true);  // Bottom LED in shutter speed column
-         set_led(LEDS_PER_COLUMN - 2, 1, true);  // Second from bottom LED in shutter speed column
-         _delay_ms(200);  // On for 200ms
-         
-         // Turn off the LEDs
-         set_led(LEDS_PER_COLUMN - 1, 0, false);
-         set_led(LEDS_PER_COLUMN - 2, 0, false);
-         set_led(LEDS_PER_COLUMN - 1, 1, false);
-         set_led(LEDS_PER_COLUMN - 2, 1, false);
-         _delay_ms(200);  // Off for 200ms
-     }
+        // Turn on the f/1 and 1s LEDs (position 0 in both columns)
+        set_led(0, 0, true);  // f/1 LED in ISO/aperture column
+        set_led(0, 1, true);  // 1s LED in shutter speed column
+        _delay_ms(200);  // On for 200ms
+        
+        // Turn off the LEDs
+        set_led(0, 0, false);
+        set_led(0, 1, false);
+        _delay_ms(200);  // Off for 200ms
+    }
      
      // Restore the original LED state
      restore_led_state();

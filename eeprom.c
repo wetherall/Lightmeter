@@ -29,7 +29,7 @@ void eeprom_write_byte(uint16_t addr, uint8_t data) {
     *((volatile uint8_t *)(EEPROM_START + addr)) = data;
     
     /* Execute EEPROM write command */
-    NVMCTRL.CTRLA = NVMCTRL_CMD_EEERWR_gc;
+    NVMCTRL.CTRLA = NVMCTRL_CMD_PAGEERASEWRITE_gc;
 }
 
 /**

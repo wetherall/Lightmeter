@@ -36,8 +36,8 @@
   * GLOBAL VARIABLES
   */
  
- /* LED state variables */
- volatile uint8_t pwm_phase = 0;             // Phase for simplified PWM (0-1, for full/half brightness)
+/* PWM phase is now defined in led_matrix.c */
+// volatile uint8_t pwm_phase = 0;          // Phase for simplified PWM (0-1, for full/half brightness)
  
  /* Button flags */
  volatile bool wake_flag = false;            // Flag for wake button press
