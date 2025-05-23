@@ -31,6 +31,19 @@
  #include "eeprom.h"
  #include "i2c.h"
  #include "led_matrix.h"
+
+ #include <Arduino.h>
+// Define this to allow direct register access in an Arduino project
+#define __AVR_ATtiny3217__
+ 
+ /**
+  * MACROS FOR OVERFLOW-SAFE TIME CALCULATIONS
+  * 
+  * These macros handle the case where our millisecond counter overflows
+  * after approximately 49 days of continuous operation.
+  */
+ #define TIME_SINCE(start) ((uint32_t)(current_time - (start)))
+ #define TIME_ELAPSED(start, duration) (TIME_SINCE(start) >= (duration))
  
  /**
   * GLOBAL VARIABLES
@@ -67,6 +80,7 @@
  volatile bool displaying_battery_warning = false; // Currently showing battery warning
  volatile uint32_t battery_warning_start_time = 0; // When we started showing warning
  volatile bool led_state_saved = false;           // Whether we've saved the LED state
+ volatile bool battery_warning_active = false;    // Flag to prevent display updates during warning
  
  /* Arrays to store LED state during battery warning */
  uint8_t saved_led_matrix_data[TOTAL_LEDS];
@@ -168,53 +182,37 @@
      
      // For each column, check if the corresponding LED should be lit
      for (uint8_t col = 0; col < 4; col++) {
-         // For columns 0-1 (ISO/Aperture LEDs)
+         // Calculate the LED index based on column and current row
+         uint8_t led_idx;
+         
          if (col < 2) {
-             // Calculate the logical LED index
+             // Columns 0-1: ISO/Aperture LEDs
+             // Column 0 handles logical rows 0-5, Column 1 handles logical rows 6-11
              uint8_t logical_row = (col == 0) ? current_row : (current_row + 6);
-             uint8_t led_idx = logical_row;  // For left side (col 0, ISO/Aperture)
-             
-             // Check if LED should be on in current PWM phase
-             bool should_be_on = false;
-             
-             if (led_matrix_data[led_idx]) {
-                 if (led_brightness[led_idx] == FULL_BRIGHTNESS) {
-                     // Full brightness - always on
-                     should_be_on = true;
-                 } else if (led_brightness[led_idx] == HALF_BRIGHTNESS) {
-                     // Half brightness - only on during first phase
-                     should_be_on = (pwm_phase == 0);
-                 }
-             }
-             
-             if (should_be_on) {
-                 // Turn on this LED by setting its column LOW (active low)
-                 COLS_PORT.OUTCLR = column_pins[col];
+             led_idx = logical_row;  // Indices 0-11 for ISO/Aperture
+         } else {
+             // Columns 2-3: Shutter Speed LEDs
+             // Column 2 handles logical rows 0-5, Column 3 handles logical rows 6-11
+             uint8_t logical_row = (col == 2) ? current_row : (current_row + 6);
+             led_idx = logical_row + LEDS_PER_COLUMN;  // Indices 12-23 for Shutter
+         }
+         
+         // Check if LED should be on in current PWM phase
+         bool should_be_on = false;
+         
+         if (led_matrix_data[led_idx]) {
+             if (led_brightness[led_idx] == FULL_BRIGHTNESS) {
+                 // Full brightness - always on (both phases)
+                 should_be_on = true;
+             } else if (led_brightness[led_idx] == HALF_BRIGHTNESS) {
+                 // Half brightness - only on during first phase (50% duty cycle)
+                 should_be_on = (pwm_phase == 0);
              }
          }
-         // For columns 2-3 (Shutter Speed LEDs)
-         else {
-             // Calculate the logical LED index
-             uint8_t logical_row = (col == 2) ? current_row : (current_row + 6);
-             uint8_t led_idx = logical_row + LEDS_PER_COLUMN;  // For right side (col 1, Shutter)
-             
-             // Check if LED should be on in current PWM phase
-             bool should_be_on = false;
-             
-             if (led_matrix_data[led_idx]) {
-                 if (led_brightness[led_idx] == FULL_BRIGHTNESS) {
-                     // Full brightness - always on
-                     should_be_on = true;
-                 } else if (led_brightness[led_idx] == HALF_BRIGHTNESS) {
-                     // Half brightness - only on during first phase
-                     should_be_on = (pwm_phase == 0);
-                 }
-             }
-             
-             if (should_be_on) {
-                 // Turn on this LED by setting its column LOW (active low)
-                 COLS_PORT.OUTCLR = column_pins[col];
-             }
+         
+         if (should_be_on) {
+             // Turn on this LED by setting its column LOW (active low)
+             COLS_PORT.OUTCLR = column_pins[col];
          }
      }
      
@@ -298,7 +296,7 @@
  static bool debounce_check(uint32_t *last_time) {
      uint32_t current = current_time;
      
-     if (current - *last_time >= DEBOUNCE_TIME_MS) {
+     if (TIME_SINCE(*last_time) >= DEBOUNCE_TIME_MS) {
          *last_time = current;
          return true;
      }
@@ -441,7 +439,7 @@
      // Prepare the value for comparison with our standard values
      float display_speed = showing_seconds ? shutter_speed : 1.0 / shutter_speed;
      
-     // Find the nearest standard shutter speed
+     // Find the nearest standard shutter speed with early termination
      int index = -1;
      float min_diff = 1000000.0;
      
@@ -450,6 +448,9 @@
          if (diff < min_diff) {
              min_diff = diff;
              index = i;
+         } else if (diff > min_diff) {
+             // Values are getting worse, we've passed the minimum
+             break;
          }
      }
      
@@ -481,21 +482,27 @@
   * 
   * This function is called every millisecond by the Timer/Counter B0 interrupt.
   * It handles time tracking, button hold detection, and blinking effects.
+  * 
+  * Optimized to only process blinking when needed, reducing CPU load.
   */
  ISR(TCB0_INT_vect) {
      // Increment millisecond counter
      current_time++;
      
+     // Static variables to track next blink times for efficiency
+     static uint32_t next_iso_blink = 0;
+     static uint32_t next_seconds_blink = 0;
+     
      // Check if mode button is being held
      if (mode_button_down && !mode_button_held) {
-         if (current_time - mode_button_press_time >= BUTTON_HOLD_THRESHOLD) {
+         if (TIME_SINCE(mode_button_press_time) >= BUTTON_HOLD_THRESHOLD) {
              // Mode button has been held down long enough
              mode_button_held = true;
          }
      }
      
      // Check if it's time to verify battery status
-     if (current_time - last_battery_check >= BATTERY_CHECK_INTERVAL) {
+     if (TIME_ELAPSED(last_battery_check, BATTERY_CHECK_INTERVAL)) {
          last_battery_check = current_time;
          
          // Check battery level
@@ -513,64 +520,56 @@
          }
      }
      
-     // Handle ISO mode blinking (separate from seconds blinking)
-     if (display_mode == DISPLAY_ISO) {
-         static uint32_t last_iso_blink_time = 0;
+     // Handle ISO mode blinking only when needed
+     if (display_mode == DISPLAY_ISO && current_time >= next_iso_blink) {
+         next_iso_blink = current_time + BLINK_MED_MS;
+         iso_blink_state = !iso_blink_state;
          
-         if (current_time - last_iso_blink_time >= BLINK_MED_MS) {
-             last_iso_blink_time = current_time;
-             iso_blink_state = !iso_blink_state;
-             
-             // Update settings column based on blink state
-             if (iso_blink_state) {
-                 // Turn on ISO LEDs
-                 int index = find_nearest_iso_index(iso_setting);
-                 set_led(index, 0, true);
-             } else {
-                 // Turn off only the ISO column during blink
-                 for (int i = 0; i < LEDS_PER_COLUMN; i++) {
-                     set_led(i, 0, false);
-                 }
+         // Update settings column based on blink state
+         if (iso_blink_state) {
+             // Turn on ISO LEDs
+             int index = find_nearest_iso_index(iso_setting);
+             set_led(index, 0, true);
+         } else {
+             // Turn off only the ISO column during blink
+             for (int i = 0; i < LEDS_PER_COLUMN; i++) {
+                 set_led(i, 0, false);
              }
          }
      }
      
-     // Handle whole seconds blinking (separate from ISO blinking)
-     if (showing_seconds) {
-         static uint32_t last_seconds_blink_time = 0;
+     // Handle whole seconds blinking only when needed
+     if (showing_seconds && current_time >= next_seconds_blink) {
+         next_seconds_blink = current_time + BLINK_FAST_MS;
+         seconds_blink_state = !seconds_blink_state;
          
-         if (current_time - last_seconds_blink_time >= BLINK_FAST_MS) {
-             last_seconds_blink_time = current_time;
-             seconds_blink_state = !seconds_blink_state;
-             
-             // Update shutter column based on blink state
-             if (seconds_blink_state) {
-                 // Recalculate and show the shutter speed
-                 if (last_lux_reading > 0) {
-                     float shutter_speed = calculate_shutter_speed(last_lux_reading, iso_setting, aperture_setting);
+         // Update shutter column based on blink state
+         if (seconds_blink_state) {
+             // Recalculate and show the shutter speed
+             if (last_lux_reading > 0) {
+                 float shutter_speed = calculate_shutter_speed(last_lux_reading, iso_setting, aperture_setting);
+                 
+                 // We need to restore the LEDs but can't call update_shutter_display as that would
+                 // reset the blink state. Instead, manually restore the LED states.
+                 float display_speed = shutter_speed >= 1.0 ? shutter_speed : 1.0 / shutter_speed;
+                 int index = find_nearest_shutter_index(display_speed);
+                 set_led(index, 1, true);
+                 
+                 // If needed, also show the next LED for intermediate values
+                 float percent_to_next = 0.0;
+                 if (index < (SHUTTER_COUNT - 1)) {
+                     float range = shutter_speed_values[index+1] - shutter_speed_values[index];
+                     percent_to_next = (display_speed - shutter_speed_values[index]) / range;
                      
-                     // We need to restore the LEDs but can't call update_shutter_display as that would
-                     // reset the blink state. Instead, manually restore the LED states.
-                     float display_speed = shutter_speed >= 1.0 ? shutter_speed : 1.0 / shutter_speed;
-                     int index = find_nearest_shutter_index(display_speed);
-                     set_led(index, 1, true);
-                     
-                     // If needed, also show the next LED for intermediate values
-                     float percent_to_next = 0.0;
-                     if (index < (SHUTTER_COUNT - 1)) {
-                         float range = shutter_speed_values[index+1] - shutter_speed_values[index];
-                         percent_to_next = (display_speed - shutter_speed_values[index]) / range;
-                         
-                         if (percent_to_next > 0.25 && index < (SHUTTER_COUNT - 1)) {
-                             set_led_brightness(index + 1, 1, HALF_BRIGHTNESS);
-                         }
+                     if (percent_to_next > 0.25 && index < (SHUTTER_COUNT - 1)) {
+                         set_led_brightness(index + 1, 1, HALF_BRIGHTNESS);
                      }
                  }
-             } else {
-                 // Turn off only the shutter column LEDs during blink
-                 for (int i = 0; i < LEDS_PER_COLUMN; i++) {
-                     set_led(i, 1, false);
-                 }
+             }
+         } else {
+             // Turn off only the shutter column LEDs during blink
+             for (int i = 0; i < LEDS_PER_COLUMN; i++) {
+                 set_led(i, 1, false);
              }
          }
      }
@@ -668,16 +667,20 @@
          }
          
          // Check if we need to show a temporary battery warning
-         if (displaying_battery_warning) {
+         if (displaying_battery_warning && !battery_warning_active) {
+             // Set flag to prevent display updates during warning
+             battery_warning_active = true;
+             
              // Flash the warning
              flash_low_battery_warning();
              
-             // Clear the flag
+             // Clear the flags
+             battery_warning_active = false;
              displaying_battery_warning = false;
          }
          
-         // Check if we need to take a light reading
-         if (wake_flag) {
+         // Check if we need to take a light reading (ignore if battery warning active)
+         if (wake_flag && !battery_warning_active) {
              wake_flag = false;
              
              // Take a light reading
@@ -691,7 +694,7 @@
          }
          
          // Check for mode button press (toggle between ISO and aperture)
-         if (mode_button_flag) {
+         if (mode_button_flag && !battery_warning_active) {
              mode_button_flag = false;
              
              // Toggle between aperture and ISO mode
@@ -706,7 +709,7 @@
          }
          
          // Check for up button press
-         if (up_button_flag) {
+         if (up_button_flag && !battery_warning_active) {
              up_button_flag = false;
              
              // Up button pressed - increment current setting
@@ -728,7 +731,7 @@
          }
          
          // Check for down button press
-         if (down_button_flag) {
+         if (down_button_flag && !battery_warning_active) {
              down_button_flag = false;
              
              // Decrement current setting based on mode
@@ -749,8 +752,8 @@
              }
          }
          
-         // Check for sleep timeout
-         if (current_time - last_activity_time > SLEEP_TIMEOUT_MS) {
+         // Check for sleep timeout using overflow-safe comparison
+         if (TIME_ELAPSED(last_activity_time, SLEEP_TIMEOUT_MS)) {
              // Save settings before sleeping
              save_settings();
              

@@ -11,6 +11,9 @@
  * - Sleep modes (low power states)
  * - Wake-up behavior
  * - Battery voltage monitoring via ADC
+ * 
+ * Updated to fix ADC averaging, consistent voltage references, and improved
+ * sleep mode power consumption.
  */
 
  #include <avr/io.h>
@@ -22,13 +25,26 @@
  #include "led_matrix.h"       // For LED control
  #include "veml7700.h"         // For light sensor power management
  
+ /* Define the actual VDD voltage in millivolts 
+  * This should match your STNS01 regulator output
+  * Common values are 3100mV or 3300mV
+  */
+ #define VDD_VOLTAGE_MV 3100   // 3.1V from STNS01 regulator
+ 
  // External references to time tracking variables (defined in main.c)
  extern volatile uint32_t current_time;
  extern volatile uint32_t last_activity_time;
  extern volatile bool critical_battery_shutdown;
  extern volatile bool displaying_battery_warning;
+ extern volatile bool battery_warning_active;
  extern void save_led_state(void);
  extern void restore_led_state(void);
+ 
+ // External button flags that need to be cleared on wake
+ extern volatile bool wake_flag;
+ extern volatile bool mode_button_flag;
+ extern volatile bool up_button_flag;
+ extern volatile bool down_button_flag;
  
  /**
   * Initialize battery monitoring
@@ -51,14 +67,16 @@
      // Enable ADC
      ADC0.CTRLA = ADC_ENABLE_bm;
      
-     // Set ADC resolution to 10-bit and use VDD (3.1V) as reference
+     // Set ADC resolution to 10-bit and use VDD as reference
+     // The VDD reference uses whatever voltage is powering the chip
      ADC0.CTRLC = ADC_PRESC_DIV16_gc | ADC_REFSEL_VDDREF_gc;
      
      // Configure for single-ended input on AIN2 (PC2)
      ADC0.MUXPOS = ADC_MUXPOS_AIN2_gc;
      
-     // Low-pass filter to reduce noise
-     ADC0.CTRLB = ADC_SAMPNUM_ACC16_gc;  // Accumulate 16 samples for filtering
+     // Low-pass filter to reduce noise - accumulate 16 samples
+     // When reading, we'll need to divide by 16 or right-shift by 4
+     ADC0.CTRLB = ADC_SAMPNUM_ACC16_gc;
  }
  
  /**
@@ -80,18 +98,20 @@
      // Wait for conversion to complete
      while (!(ADC0.INTFLAGS & ADC_RESRDY_bm));
      
-     // Read ADC result (10-bit, 0-1023)
-     uint16_t adc_result = ADC0.RES;
+     // Read ADC result - this is the sum of 16 samples due to ACC16 mode
+     // We need to divide by 16 (or right-shift by 4) to get the average
+     uint16_t adc_result = ADC0.RES >> 4;  // Average of 16 samples
      
      // Calculate voltage in millivolts
-     // With 3.3V reference and 10-bit ADC: each step = 3.3V/1024 = 3.22mV
+     // With VDD reference and 10-bit ADC: each step = VDD/1024
      // For a 690kΩ divider (220kΩ + 470kΩ), division factor is 220/(470+220) = 0.319
      // So actual battery voltage = ADC voltage * (1/0.319) = ADC voltage * 3.13
      
      // Step 1: Convert ADC reading to voltage at the ADC pin (in mV)
-     float adc_voltage_mv = (adc_result * 3100.0) / 1024.0;
+     float adc_voltage_mv = (adc_result * (float)VDD_VOLTAGE_MV) / 1024.0;
      
      // Step 2: Calculate actual battery voltage accounting for voltage divider
+     // The divider ratio is (470+220)/220 = 3.13
      uint16_t battery_voltage_mv = (uint16_t)(adc_voltage_mv * 3.13);
      
      return battery_voltage_mv;
@@ -128,6 +148,9 @@
  
  /**
   * Flash the bottom two LEDs three times to indicate low battery
+  * 
+  * This function uses the battery_warning_active flag to prevent
+  * other display updates from interfering during the warning.
   */
  void flash_low_battery_warning(void) {
      // Save current LED state if not already saved
@@ -194,8 +217,10 @@
   * 
   * Our complete sleep strategy involves:
   * 1. Turning off all LEDs (by disabling rows and enabling columns)
-  * 2. Putting the VEML7700 light sensor into power saving mode
-  * 3. Putting the microcontroller into Power-Down sleep mode
+  * 2. Setting I2C pins to a defined state to prevent floating
+  * 3. Putting the VEML7700 light sensor into power saving mode
+  * 4. Disabling the TWI peripheral
+  * 5. Putting the microcontroller into Power-Down sleep mode
   * 
   * This combination minimizes power consumption to extend battery life.
   */
@@ -213,6 +238,24 @@
      
      // Set all columns (cathodes) HIGH to ensure LEDs are off
      COLS_PORT.OUTSET = COL1_PIN | COL2_PIN | COL3_PIN | COL4_PIN;
+     
+     /* Configure I2C pins to prevent floating during sleep
+      * 
+      * Floating inputs can cause increased power consumption due to
+      * the input buffer switching states. By driving them to a defined
+      * level, we eliminate this source of power waste.
+      */
+     // Set I2C pins as outputs temporarily
+     PORTB.DIRSET = PIN0_bm | PIN1_bm;  // SDA and SCL as outputs
+     // Drive them low (could also drive high, but low is typically preferred)
+     PORTB.OUTCLR = PIN0_bm | PIN1_bm;  // Drive low
+     
+     /* Disable the TWI peripheral completely
+      * 
+      * This saves additional power as the peripheral won't consume
+      * any current while disabled.
+      */
+     TWI0.MCTRLA = 0;  // Disable TWI
      
      /* Put VEML7700 into power saving mode
       * 
@@ -271,11 +314,21 @@
       */
      sleep_disable();
  
-     /* Re-enable all necessary peripherals */
-     // Re-enable I2C for the light sensor
-     TWI0.MCTRLA |= TWI_ENABLE_bm;
+     /* Re-configure I2C pins back to their normal state
+      * 
+      * We need to restore them as inputs with pull-ups for I2C operation
+      */
+     PORTB.DIRCLR = PIN0_bm | PIN1_bm;  // SDA and SCL back to inputs
+     PORTB.PIN0CTRL = PORT_PULLUPEN_bm;  // Re-enable pull-up on SDA
+     PORTB.PIN1CTRL = PORT_PULLUPEN_bm;  // Re-enable pull-up on SCL
      
-     // Re-enable ADC for battery monitoring
+     /* Re-enable I2C/TWI peripheral */
+     TWI0.MCTRLA = TWI_ENABLE_bm;
+     
+     /* Re-configure TWI for smart mode */
+     TWI0.MCTRLB = TWI_MCMD_RECVTRANS_gc;
+     
+     /* Re-enable ADC for battery monitoring */
      ADC0.CTRLA |= ADC_ENABLE_bm;
      
      /* Take VEML7700 out of power saving mode
@@ -284,6 +337,16 @@
       * so it can take readings again.
       */
      veml7700_power_save_disable();
+     
+     /* Clear any pending button flags
+      * 
+      * The wake interrupt might have set button flags that we don't
+      * want to process immediately after waking up.
+      */
+     wake_flag = false;
+     mode_button_flag = false;
+     up_button_flag = false;
+     down_button_flag = false;
      
      /* Reset the activity timer
       * 

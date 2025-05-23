@@ -3,6 +3,8 @@
  * 
  * This file contains the implementation of functions for
  * performing light meter calculations.
+ * 
+ * Updated to fix the shutter speed index calculation logic.
  */
 
 #include <math.h>
@@ -93,25 +95,37 @@ int find_nearest_aperture_index(float aperture) {
 
 /**
  * Find the nearest shutter speed index
+ * 
+ * This function has been fixed to properly handle the comparison between
+ * the calculated shutter speed (in seconds) and our standard values.
+ * 
+ * Our shutter_speed_values array contains denominators for fractions:
+ * - For speeds < 1 second: the value represents 1/n seconds (e.g., 125 = 1/125s)
+ * - For speeds ≥ 1 second: we treat the same values as whole seconds
+ * 
+ * The logic has been corrected to properly compare the actual time values.
  */
 int find_nearest_shutter_index(float shutter_speed) {
-    // Convert to fraction or full seconds for comparison
-    float comparison_value;
-    
-    if (shutter_speed < 1.0) {
-        // Convert to fraction (1/x)
-        comparison_value = 1.0 / shutter_speed;
-    } else {
-        // Use as-is for full seconds
-        comparison_value = shutter_speed;
-    }
-    
-    // Find nearest match
     int nearest_index = 0;
-    float min_difference = fabsf(shutter_speed_values[0] - comparison_value);
+    float min_difference = 1000000.0;
     
-    for (int i = 1; i < SHUTTER_COUNT; i++) {
-        float difference = fabsf(shutter_speed_values[i] - comparison_value);
+    // For each standard shutter speed value
+    for (int i = 0; i < SHUTTER_COUNT; i++) {
+        float standard_time;
+        float difference;
+        
+        if (shutter_speed < 1.0) {
+            // For fractional seconds, our array values represent denominators
+            // So we need to convert them to actual time values (1/n)
+            standard_time = 1.0 / (float)shutter_speed_values[i];
+            difference = fabsf(standard_time - shutter_speed);
+        } else {
+            // For whole seconds, treat the array values as whole seconds
+            standard_time = (float)shutter_speed_values[i];
+            difference = fabsf(standard_time - shutter_speed);
+        }
+        
+        // Check if this is the closest match so far
         if (difference < min_difference) {
             min_difference = difference;
             nearest_index = i;
