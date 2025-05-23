@@ -6,6 +6,8 @@
  * the previous shift register approach with direct GPIO control for reduced
  * component count and cost.
  * 
+ * Updated for 4MHz clock frequency operation.
+ * 
  * Overview of how the program works:
  * 1. The system initializes all components (LED matrix, light sensor, buttons, battery monitor)
  * 2. It loads saved settings from EEPROM (or uses defaults if first run)
@@ -31,10 +33,6 @@
  #include "eeprom.h"
  #include "i2c.h"
  #include "led_matrix.h"
-
- #include <Arduino.h>
-// Define this to allow direct register access in an Arduino project
-#define __AVR_ATtiny3217__
  
  /**
   * MACROS FOR OVERFLOW-SAFE TIME CALCULATIONS
@@ -269,13 +267,14 @@
   * 
   * This function sets up Timer/Counter B0 to generate interrupts
   * every millisecond for time tracking and other timing functions.
+  * Updated for 4MHz clock frequency.
   */
  void init_timer(void) {
      /* Configure Timer/Counter B0 for periodic interrupts */
      TCB0.CTRLB = TCB_CNTMODE_INT_gc;
      
-     /* Set timer period for 1ms with 3.3MHz clock */
-     TCB0.CCMP = 3300;
+     /* Set timer period for 1ms with 4MHz clock */
+     TCB0.CCMP = 4000;  // 4MHz / 1000 = 4000 for 1ms
      
      /* Enable timer interrupt */
      TCB0.INTCTRL = TCB_CAPT_bm;

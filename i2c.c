@@ -6,6 +6,7 @@
  * 
  * Updated to include proper error checking for NACK conditions,
  * which occur when a device doesn't acknowledge a transmission.
+ * Also updated for 4MHz clock frequency operation.
  */
 
 #include <avr/io.h>
@@ -13,10 +14,13 @@
 
 /**
  * Initialize I2C communication
+ * Updated for 4MHz clock frequency to maintain 100kHz I2C speed.
  */
 void init_i2c(void) {
-    /* Set up TWI peripheral for standard speed (100kHz) */
-    TWI0.MBAUD = 16;
+    /* Set up TWI peripheral for standard speed (100kHz) with 4MHz clock */
+    /* Formula: F_SCL = F_CLK_PER / (2 * (5 + MBAUD)) */
+    /* For 100kHz at 4MHz: MBAUD = (4000000 / 200000) - 5 = 15 */
+    TWI0.MBAUD = 15;
     
     /* Enable TWI as master */
     TWI0.MCTRLA = TWI_ENABLE_bm;

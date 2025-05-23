@@ -4,8 +4,8 @@
  * This file contains the implementation of functions for
  * interfacing with the VEML7700 ambient light sensor via I2C.
  * 
- * Updated to use a lookup table for integration time delays,
- * reducing excessive wait times and improving responsiveness.
+ * Updated to use compile-time constants for integration time delays,
+ * reducing code size and fixing compilation errors.
  */
 
 #include <avr/io.h>
@@ -19,56 +19,6 @@ float last_lux_reading = 0.0;
 // Current sensor settings
 static uint8_t current_gain = VEML7700_GAIN_1_8;
 static uint8_t current_integration_time = VEML7700_IT_100MS;
-
-/**
- * Lookup table for integration time delays in milliseconds
- * 
- * This table maps integration time settings to their actual delays.
- * Using a lookup table is more efficient than a switch statement
- * and makes it easy to add safety margins if needed.
- */
-static const uint16_t integration_delays[] = {
-    100,  // VEML7700_IT_100MS (0x00)
-    200,  // VEML7700_IT_200MS (0x01)
-    400,  // VEML7700_IT_400MS (0x02)
-    800,  // VEML7700_IT_800MS (0x03)
-    0,    // Reserved (0x04)
-    0,    // Reserved (0x05)
-    0,    // Reserved (0x06)
-    0,    // Reserved (0x07)
-    50,   // VEML7700_IT_50MS  (0x08)
-    0,    // Reserved (0x09)
-    0,    // Reserved (0x0A)
-    0,    // Reserved (0x0B)
-    25    // VEML7700_IT_25MS  (0x0C)
-};
-
-/**
- * Get the delay in milliseconds for a given integration time setting
- * 
- * This helper function safely retrieves the delay time from our lookup table.
- * It includes bounds checking to prevent array access errors.
- */
-static uint16_t get_integration_delay(uint8_t integration_time) {
-    // Extract just the integration time bits (bits 6-9)
-    uint8_t it_value = integration_time & 0x0F;
-    
-    // Bounds check
-    if (it_value > 12) {
-        // Invalid integration time, return default
-        return 100;
-    }
-    
-    uint16_t delay = integration_delays[it_value];
-    
-    // If the delay is 0 (reserved value), return default
-    if (delay == 0) {
-        return 100;
-    }
-    
-    // Add a small safety margin (5ms) to ensure conversion completes
-    return delay + 5;
-}
 
 /**
  * Write a register to the VEML7700 sensor
@@ -254,28 +204,55 @@ void veml7700_power_save_disable(void) {
 /**
  * Wait for integration to complete with optimized delay
  * 
- * This helper function uses our lookup table to wait the appropriate
- * amount of time for the current integration time setting.
+ * This helper function waits the appropriate amount of time for the current 
+ * integration time setting using compile-time constants only.
+ * This is the most efficient approach and avoids all variable delay issues.
  */
 static void wait_for_integration(void) {
-    uint16_t delay_ms = get_integration_delay(current_integration_time);
-    
-    // Use _delay_ms in a loop for delays > 255ms
-    while (delay_ms > 255) {
-        _delay_ms(255);
-        delay_ms -= 255;
-    }
-    
-    // Delay the remaining time
-    if (delay_ms > 0) {
-        _delay_ms(delay_ms);
+    // Switch on the actual integration time setting to use compile-time constants
+    // Each delay includes the 5ms safety margin from get_integration_delay()
+    switch (current_integration_time) {
+        case VEML7700_IT_25MS:
+            _delay_ms(30);  // 25ms + 5ms safety margin
+            break;
+            
+        case VEML7700_IT_50MS:
+            _delay_ms(55);  // 50ms + 5ms safety margin
+            break;
+            
+        case VEML7700_IT_100MS:
+            _delay_ms(105); // 100ms + 5ms safety margin
+            break;
+            
+        case VEML7700_IT_200MS:
+            _delay_ms(205); // 200ms + 5ms safety margin
+            break;
+            
+        case VEML7700_IT_400MS:
+            // For delays > 255ms, break into chunks
+            _delay_ms(255);
+            _delay_ms(150); // Total: 405ms (400ms + 5ms safety margin)
+            break;
+            
+        case VEML7700_IT_800MS:
+            // For delays > 255ms, break into chunks  
+            _delay_ms(255);
+            _delay_ms(255);
+            _delay_ms(255);
+            _delay_ms(40);  // Total: 805ms (800ms + 5ms safety margin)
+            break;
+            
+        default:
+            // Fallback to 100ms + safety margin for unknown settings
+            _delay_ms(105);
+            break;
     }
 }
 
 /**
  * Measure light with automatic gain and integration time adjustment
  * 
- * This function has been optimized to use the lookup table for delays,
+ * This function has been optimized to use compile-time constants for delays,
  * reducing wait times and improving responsiveness.
  */
 float measure_light(void) {

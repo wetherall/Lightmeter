@@ -6,6 +6,8 @@
  * 16 brightness levels, we now use just 2 levels (full and half brightness)
  * for better efficiency while maintaining necessary functionality.
  * 
+ * Updated for 4MHz clock frequency operation.
+ * 
  * The implementation uses:
  * - 6 row pins (anodes) and 4 column pins (cathodes) for 24 LEDs
  * - Simple 2-phase PWM for brightness control (full and half brightness)
@@ -80,16 +82,17 @@ void init_led_matrix(void) {
  * 
  * This function sets up Timer/Counter B1 to generate interrupts
  * at a rate fast enough for matrix scanning and basic PWM control.
+ * Updated for 4MHz clock frequency.
  */
 void init_matrix_timer(void) {
     // Configure Timer/Counter B1 for matrix scanning
     TCB1.CTRLB = TCB_CNTMODE_INT_gc;
     
-    // Set timer period for fast scanning
-    // With 3.3MHz clock, we want around 550 cycles per phase (2 phases per row)
-    // This gives us approximately (3300000 / 550 / 2 / 6) = 500Hz refresh rate
+    // Set timer period for fast scanning with 4MHz clock
+    // With 4MHz clock, we want around 667 cycles per phase (2 phases per row)
+    // This gives us approximately (4000000 / 667 / 2 / 6) = 500Hz refresh rate
     // Each row gets scanned at about 83Hz, which is fast enough to avoid flicker
-    TCB1.CCMP = 550;
+    TCB1.CCMP = 667;
     
     // Enable timer interrupt
     TCB1.INTCTRL = TCB_CAPT_bm;
