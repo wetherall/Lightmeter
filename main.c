@@ -102,8 +102,8 @@
  
  /* Button pins - updated for new pinout */
  #define MODE_BUTTON_PIN  PIN1_bm   // Mode button on PA1
- #define READ_BUTTON_PIN  PIN2_bm   // Read button on PA2
- #define UP_BUTTON_PIN    PIN3_bm   // Up button on PA3
+ #define READ_BUTTON_PIN  PIN3_bm   // Read button on PA3
+ #define UP_BUTTON_PIN    PIN2_bm   // Up button on PA2
  #define DOWN_BUTTON_PIN  PIN4_bm   // Down button on PA4
  
  /* Button debouncing constants and variables */
@@ -215,17 +215,18 @@
  void init_gpio(void) {
      /* Configure button pins as inputs with pull-ups */
      /* SIMPLIFIED: Mode button now only needs falling edge detection */
-     PORTA.DIRCLR = MODE_BUTTON_PIN;  // Mode button (PA1)
-     PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;  // Only falling edge
-     
-     PORTA.DIRCLR = READ_BUTTON_PIN;  // Read button (PA2)
-     PORTA.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
-     
-     PORTA.DIRCLR = UP_BUTTON_PIN;    // Up button (PA3)
-     PORTA.PIN3CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
-     
-     PORTA.DIRCLR = DOWN_BUTTON_PIN;  // Down button (PA4)
-     PORTA.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
+     /* SIMPLIFIED: Mode button now only needs falling edge detection */
+    PORTA.DIRCLR = MODE_BUTTON_PIN;  // Mode button (PA1)
+    PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;  // Only falling edge
+
+    PORTA.DIRCLR = READ_BUTTON_PIN;  // Read button (PA3 - swapped)
+    PORTA.PIN3CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
+
+    PORTA.DIRCLR = UP_BUTTON_PIN;    // Up button (PA2 - swapped)
+    PORTA.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
+
+    PORTA.DIRCLR = DOWN_BUTTON_PIN;  // Down button (PA4)
+    PORTA.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
      
      /* Configure I2C pins as inputs with pull-ups */
      PORTB.DIRCLR = PIN0_bm;  // SDA pin
