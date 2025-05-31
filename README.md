@@ -34,8 +34,8 @@ PC2: Battery Level ADC Input
 
 // Button Pins
 PA1: Mode Button
-PA2: Read/Wake Button
-PA3: Up Button
+PA2: Up Button (swapped with Read)
+PA3: Read/Wake Button (swapped with Up)
 PA4: Down Button
 
 // LED Matrix Rows (anodes) - 6 pins
