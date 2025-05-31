@@ -6,6 +6,9 @@
  * to remember settings between power cycles.
  * 
  * Updated to work with the new LED matrix implementation and binary brightness levels.
+ * 
+ * IMPROVED: Added change detection to prevent unnecessary EEPROM writes,
+ * extending the lifetime of the EEPROM memory (typically rated for 100,000 write cycles).
  */
 
 #include <avr/io.h>
@@ -17,6 +20,27 @@
 extern uint16_t iso_setting;
 extern float aperture_setting;
 extern uint8_t current_brightness;  // Now a binary value (0=half, 1=full)
+
+/**
+ * Structure to cache the last saved settings
+ * This allows us to detect when settings have actually changed
+ * and avoid unnecessary EEPROM writes
+ */
+typedef struct {
+    uint16_t iso;           // Last saved ISO value
+    float aperture;         // Last saved aperture value
+    uint8_t brightness;     // Last saved brightness value
+    bool initialized;       // Whether we've loaded/saved at least once
+} settings_cache_t;
+
+// Static variable to store the last saved settings
+// This persists for the duration of the program but is lost on power cycle
+static settings_cache_t last_saved_settings = {
+    .iso = 0,
+    .aperture = 0.0,
+    .brightness = 0,
+    .initialized = false
+};
 
 /**
  * Write a single byte to EEPROM
@@ -105,9 +129,57 @@ float eeprom_read_float(uint16_t addr) {
 }
 
 /**
+ * Check if settings have changed since last save
+ * 
+ * This function compares current settings with the cached values
+ * to determine if an EEPROM write is necessary.
+ * 
+ * For floating point comparison, we use memcmp to avoid issues
+ * with floating point equality testing.
+ * 
+ * @return true if settings have changed, false if they're the same
+ */
+static bool settings_have_changed(void) {
+    // If we haven't initialized yet, settings have "changed"
+    if (!last_saved_settings.initialized) {
+        return true;
+    }
+    
+    // Check if ISO has changed
+    if (iso_setting != last_saved_settings.iso) {
+        return true;
+    }
+    
+    // Check if aperture has changed
+    // Use memcmp for safe float comparison
+    if (memcmp(&aperture_setting, &last_saved_settings.aperture, sizeof(float)) != 0) {
+        return true;
+    }
+    
+    // Check if brightness has changed
+    if (current_brightness != last_saved_settings.brightness) {
+        return true;
+    }
+    
+    // No changes detected
+    return false;
+}
+
+/**
  * Save current settings to EEPROM
+ * 
+ * IMPROVED: Now only writes to EEPROM if settings have actually changed,
+ * preventing unnecessary wear on the EEPROM memory.
  */
 void save_settings(void) {
+    /* Check if settings have actually changed */
+    if (!settings_have_changed()) {
+        // Settings haven't changed, no need to write to EEPROM
+        return;
+    }
+    
+    /* Settings have changed, proceed with saving */
+    
     /* Save ISO setting (16-bit value) */
     eeprom_write_word(EEPROM_ISO_ADDR, iso_setting);
     
@@ -125,6 +197,12 @@ void save_settings(void) {
     
     /* Mark that settings have been saved */
     eeprom_write_byte(EEPROM_FIRST_RUN_ADDR, 0x42);
+    
+    /* Update the cache with the newly saved values */
+    last_saved_settings.iso = iso_setting;
+    last_saved_settings.aperture = aperture_setting;
+    last_saved_settings.brightness = current_brightness;
+    last_saved_settings.initialized = true;
 }
 
 /**
@@ -173,7 +251,13 @@ void load_settings(void) {
         current_brightness = FULL_BRIGHTNESS;
     }
     
-    /* If any setting was invalid, save the corrected values */
+    /* Update the cache with loaded values */
+    last_saved_settings.iso = iso_setting;
+    last_saved_settings.aperture = aperture_setting;
+    last_saved_settings.brightness = current_brightness;
+    last_saved_settings.initialized = true;
+    
+    /* If any setting was invalid and got corrected, save the corrected values */
     if (loaded_iso != iso_setting || 
         loaded_aperture != aperture_setting || 
         (loaded_brightness <= 7 && current_brightness != HALF_BRIGHTNESS) ||

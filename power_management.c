@@ -14,6 +14,8 @@
  * 
  * Updated to fix ADC averaging, consistent voltage references, and improved
  * sleep mode power consumption.
+ * 
+ * IMPROVED: Removed mode button hold references for cleaner code
  */
 
  #include <avr/io.h>
@@ -305,6 +307,8 @@
   * 
   * This function restores normal operation after waking from sleep.
   * It re-enables all peripherals that were disabled before sleeping.
+  * 
+  * IMPROVED: Removed mode button hold flag clearing
   */
  void wake_from_sleep(void) {
      /* Disable sleep mode

@@ -12,6 +12,8 @@
  * - 6 row pins (anodes) and 4 column pins (cathodes) for 24 LEDs
  * - Simple 2-phase PWM for brightness control (full and half brightness)
  * - Matrix scanning technique to multiplex the LEDs
+ * 
+ * IMPROVED: Added lookup table for faster ISR execution and clearer mapping functions
  */
 
 #include <avr/io.h>
@@ -47,6 +49,108 @@ const uint8_t column_pins[4] = {
     COL1_PIN, COL2_PIN, COL3_PIN, COL4_PIN
 };
 
+/* Lookup table for fast LED index calculation in ISR
+ * This table maps [physical_row][physical_col] -> led_index
+ * Pre-calculated during initialization to avoid repeated calculations
+ */
+uint8_t led_index_lookup[6][4];
+
+/**
+ * Get the physical position for a logical LED position
+ * 
+ * This function clarifies the mapping between what the user thinks of as
+ * LED positions (0-11 for ISO/aperture, 0-11 for shutter speed) and the
+ * actual physical matrix layout.
+ * 
+ * @param logical_row - The LED row in logical terms (0-11)
+ * @param logical_col - The LED column in logical terms (0=ISO/Aperture, 1=Shutter)
+ * @return A structure containing the physical row and column in the matrix
+ */
+physical_position_t get_physical_position(uint8_t logical_row, uint8_t logical_col) {
+    physical_position_t pos;
+    
+    // Validate input parameters
+    if (logical_row >= LEDS_PER_COLUMN || logical_col >= 2) {
+        // Invalid input, return zero position
+        pos.physical_row = 0;
+        pos.physical_col = 0;
+        return pos;
+    }
+    
+    // Physical row is always the logical row modulo 6
+    // This is because we have 6 physical rows that are reused
+    pos.physical_row = logical_row % ROWS_PER_COLUMN;
+    
+    // Physical column depends on both logical column and which half of the logical rows
+    if (logical_col == 0) {  // ISO/Aperture column
+        // Logical rows 0-5 go to physical column 0
+        // Logical rows 6-11 go to physical column 1
+        pos.physical_col = (logical_row < ROWS_PER_COLUMN) ? 0 : 1;
+    } else {  // Shutter speed column
+        // Logical rows 0-5 go to physical column 2
+        // Logical rows 6-11 go to physical column 3
+        pos.physical_col = (logical_row < ROWS_PER_COLUMN) ? 2 : 3;
+    }
+    
+    return pos;
+}
+
+/**
+ * Get the LED array index from physical matrix position
+ * 
+ * This function is the inverse of get_physical_position. It's used by the ISR
+ * to quickly determine which LED's data to check when scanning a particular
+ * physical row and column.
+ * 
+ * @param phys_row - The physical row being scanned (0-5)
+ * @param phys_col - The physical column being checked (0-3)
+ * @return The index into the LED data arrays
+ */
+uint8_t get_led_index_from_physical(uint8_t phys_row, uint8_t phys_col) {
+    uint8_t logical_row, logical_col;
+    
+    // Validate input parameters
+    if (phys_row >= ROWS_PER_COLUMN || phys_col >= 4) {
+        return 0;  // Return first LED index on invalid input
+    }
+    
+    // Determine logical column from physical column
+    // Physical columns 0-1 are ISO/Aperture (logical column 0)
+    // Physical columns 2-3 are Shutter Speed (logical column 1)
+    logical_col = (phys_col < 2) ? 0 : 1;
+    
+    // Determine logical row from physical row and column
+    logical_row = phys_row;  // Base row (0-5)
+    
+    // If we're in the second physical column of each logical column,
+    // we're displaying the bottom half of that logical column (rows 6-11)
+    if (phys_col == 1 || phys_col == 3) {
+        logical_row += ROWS_PER_COLUMN;  // Add 6 to get to bottom half
+    }
+    
+    // Calculate the array index
+    // ISO/Aperture LEDs are indices 0-11
+    // Shutter Speed LEDs are indices 12-23
+    return logical_row + (logical_col * LEDS_PER_COLUMN);
+}
+
+/**
+ * Initialize the LED lookup table
+ * 
+ * This function pre-calculates all the LED indices for each physical position
+ * in the matrix. This is called once during initialization and saves many
+ * calculations during the interrupt service routine.
+ */
+void init_led_lookup_table(void) {
+    // For each physical position in the matrix
+    for (uint8_t row = 0; row < 6; row++) {
+        for (uint8_t col = 0; col < 4; col++) {
+            // Calculate and store the LED index for this position
+            led_index_lookup[row][col] = get_led_index_from_physical(row, col);
+        }
+    }
+}
+
 /**
  * Initialize LED matrix control pins
  * 
@@ -72,6 +176,9 @@ void init_led_matrix(void) {
     // Clear all LED data
     memset(led_matrix_data, 0, sizeof(led_matrix_data));
     memset(led_brightness, 0, sizeof(led_brightness));
+    
+    // Initialize the lookup table for fast ISR operation
+    init_led_lookup_table();
     
     // Initialize PWM timer for matrix scanning
     init_matrix_timer();
@@ -104,45 +211,21 @@ void init_matrix_timer(void) {
 /**
  * Map a logical LED position to its physical matrix position
  * 
- * This function converts the logical LED coordinates (row 0-11, col 0-1)
- * to the physical matrix coordinates (row 0-5, col 0-3).
+ * This function is maintained for backwards compatibility but now uses
+ * the cleaner get_physical_position function internally.
  * 
- * The logical layout is:
- * - Left column (col 0): ISO/Aperture LEDs (12 LEDs)
- * - Right column (col 1): Shutter speed LEDs (12 LEDs)
- * 
- * The physical layout is a 6×4 matrix:
- * - Col 0-1: ISO/Aperture (split 6 LEDs per physical column)
- * - Col 2-3: Shutter speed (split 6 LEDs per physical column)
+ * @param row - Logical LED row (0-11)
+ * @param col - Logical LED column (0-1)
+ * @param matrix_row - Pointer to store the physical matrix row (0-5)
+ * @param matrix_col - Pointer to store the physical matrix column (0-3)
  */
 void map_led_to_matrix(uint8_t row, uint8_t col, uint8_t *matrix_row, uint8_t *matrix_col) {
-    // Validate coordinates
-    if (row >= LEDS_PER_COLUMN || col >= 2) {
-        // Invalid coordinates, set to defaults
-        *matrix_row = 0;
-        *matrix_col = 0;
-        return;
-    }
+    // Use the new function to get the mapping
+    physical_position_t pos = get_physical_position(row, col);
     
-    // Map logical row to physical row
-    // Rows 0-5 go to matrix row 0-5
-    // Rows 6-11 also go to matrix row 0-5
-    *matrix_row = row % ROWS_PER_COLUMN;
-    
-    // Map logical column to physical column
-    // For rows 0-5:
-    //   Col 0 (ISO/Aperture) maps to physical column 0
-    //   Col 1 (Shutter Speed) maps to physical column 2
-    // For rows 6-11:
-    //   Col 0 (ISO/Aperture) maps to physical column 1
-    //   Col 1 (Shutter Speed) maps to physical column 3
-    if (row < ROWS_PER_COLUMN) {
-        // Upper half of LEDs (rows 0-5)
-        *matrix_col = col * 2;  // Col 0 → 0, Col 1 → 2
-    } else {
-        // Lower half of LEDs (rows 6-11)
-        *matrix_col = col * 2 + 1;  // Col 0 → 1, Col 1 → 3
-    }
+    // Return the values through the pointers
+    *matrix_row = pos.physical_row;
+    *matrix_col = pos.physical_col;
 }
 
 /**
@@ -204,5 +287,6 @@ void set_led_brightness(uint8_t row, uint8_t col, uint8_t brightness) {
  * 4. Implementing simplified 2-level PWM
  * 
  * Note: This ISR is defined in main.c, but the implementation is provided here
+ * IMPROVED: Now uses lookup table for much faster execution
  */
 /* ISR implementation moved to main.c */

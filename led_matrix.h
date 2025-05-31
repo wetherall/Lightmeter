@@ -11,6 +11,9 @@
  * - 4 columns (cathodes)
  * - Column 1-2: ISO/Aperture values (12 LEDs total)
  * - Column 3-4: Shutter speed values (12 LEDs total)
+ * 
+ * IMPROVED: Added explicit mapping functions and lookup table support
+ * to simplify the complex relationship between logical and physical positions.
  */
 
 #ifndef LED_MATRIX_H
@@ -66,6 +69,19 @@
 #define DISPLAY_ISO       1    // Display mode for ISO
 
 /**
+ * STRUCTURE DEFINITIONS
+ */
+
+/**
+ * Structure to represent a physical position in the LED matrix
+ * This helps clarify the mapping between logical and physical positions
+ */
+typedef struct {
+    uint8_t physical_row;      // Physical row in matrix (0-5)
+    uint8_t physical_col;      // Physical column in matrix (0-3)
+} physical_position_t;
+
+/**
  * FUNCTION DECLARATIONS
  */
 
@@ -107,6 +123,32 @@ void init_matrix_timer(void);
  */
 void map_led_to_matrix(uint8_t row, uint8_t col, uint8_t *matrix_row, uint8_t *matrix_col);
 
+/**
+ * Get the physical position for a logical LED position
+ * This is a cleaner interface using the physical_position_t structure
+ * 
+ * @param logical_row - Logical LED row (0-11)
+ * @param logical_col - Logical LED column (0-1)
+ * @return physical_position_t structure containing the physical row and column
+ */
+physical_position_t get_physical_position(uint8_t logical_row, uint8_t logical_col);
+
+/**
+ * Get the LED array index from physical matrix position
+ * This is used by the ISR to quickly determine which LED data to check
+ * 
+ * @param phys_row - Physical matrix row (0-5)
+ * @param phys_col - Physical matrix column (0-3)
+ * @return The index into led_matrix_data[] and led_brightness[] arrays
+ */
+uint8_t get_led_index_from_physical(uint8_t phys_row, uint8_t phys_col);
+
+/**
+ * Initialize the LED lookup table
+ * This pre-calculates all mappings to avoid repeated calculations in the ISR
+ */
+void init_led_lookup_table(void);
+
 /* External variable declarations */
 extern uint8_t led_matrix_data[TOTAL_LEDS];     // Current state of each LED (on/off)
 extern uint8_t led_brightness[TOTAL_LEDS];      // Brightness level for each LED (0=half, 1=full)
@@ -115,5 +157,6 @@ extern const uint8_t column_pins[4];            // Array of column pins for LED 
 extern const uint8_t row_pins[6];               // Array of row pins for LED matrix
 extern const uint8_t row_ports[6];              // Array to track which port each row belongs to
 extern volatile uint8_t pwm_phase;              // PWM phase tracker for brightness control
+extern uint8_t led_index_lookup[6][4];          // Lookup table for fast LED index calculation
 
 #endif /* LED_MATRIX_H */

@@ -9,6 +9,9 @@
  * - The relationship between lux and Exposure Value (EV)
  * - The Exposure Triangle (ISO, aperture, and shutter speed)
  * - The "Sunny 16" rule and related exposure formulas
+ * 
+ * IMPROVED: Added clearer time-based arrays and interpolation functions
+ * for more understandable shutter speed calculations.
  */
 
 #ifndef LIGHT_METER_H
@@ -160,9 +163,25 @@ int find_nearest_aperture_index(float aperture);
  */
 int find_nearest_shutter_index(float shutter_speed);
 
+/**
+ * Calculate the percentage distance to the next shutter speed
+ * 
+ * This helper function determines how far the calculated shutter speed
+ * is between two standard values, used for the half-brightness LED indication.
+ * 
+ * Parameters:
+ *   shutter_speed - The calculated shutter time in seconds
+ *   current_index - The index of the nearest standard speed
+ * 
+ * Returns:
+ *   Percentage (0.0 to 1.0) of how far we are to the next speed
+ */
+float get_shutter_interpolation(float shutter_speed, int current_index);
+
 /* External array declarations */
 extern const uint16_t iso_values[ISO_COUNT];
 extern const float aperture_values[APERTURE_COUNT];
 extern const uint16_t shutter_speed_values[SHUTTER_COUNT];
+extern const float shutter_time_seconds[SHUTTER_COUNT];
 
 #endif /* LIGHT_METER_H */

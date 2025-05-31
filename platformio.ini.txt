@@ -1,0 +1,43 @@
+; PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+[env:ATtiny3217]
+platform = atmelmegaavr
+board = ATtiny3217
+; framework = arduino  ; Removed for pure AVR C code
+
+; Build flags
+build_flags = 
+    -Wall 
+    -Os
+    -DF_CPU=4000000UL        ; Set F_CPU to 4MHz
+    -DCLOCK_SOURCE=0         ; Use internal oscillator
+    -D__AVR_ATtiny3217__
+
+; Upload configuration for UPDI Friend
+upload_protocol = serialupdi
+upload_speed = 115200
+
+; Specify the UPDI Friend port
+; On macOS, the UPDI Friend typically appears as one of these:
+upload_port = /dev/cu.usbmodem*
+
+; Additional configuration for UPDI programming with pyupdi
+upload_flags = 
+    -c
+    $UPLOAD_PORT
+    -b
+    $UPLOAD_SPEED
+
+; This helps with logging during upload
+monitor_speed = 115200
+
+; Board configuration to use 4MHz
+board_build.f_cpu = 4000000L

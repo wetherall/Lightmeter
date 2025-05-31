@@ -16,6 +16,9 @@
  * 5. When up/down buttons are pressed, it changes settings and updates the display
  * 6. After 20 seconds of inactivity, it saves settings and enters low-power sleep mode
  * 7. Battery level is monitored periodically and warnings are displayed when low
+ * 
+ * IMPROVED: Removed mode button hold functionality, optimized ISR with lookup table,
+ * and updated shutter display logic for clarity.
  */
 
  #include <avr/io.h>
@@ -55,14 +58,6 @@
  volatile bool mode_button_flag = false;     // Flag for mode button press
  volatile bool up_button_flag = false;       // Flag for up button press
  volatile bool down_button_flag = false;     // Flag for down button press
- volatile bool mode_button_held = false;     // Flag for mode button being held
- 
- /* Button state tracking (for hold detection) */
- volatile uint32_t mode_button_press_time = 0;  // When mode button was pressed
- volatile bool mode_button_down = false;        // Whether mode button is currently down
- 
- /* Time constants for button hold detection */
- #define BUTTON_HOLD_THRESHOLD 500  // Time in ms to count as a "hold" (500ms = 0.5 seconds)
  
  /* Timing variables for sleep timeout and blink control */
  volatile uint32_t current_time = 0;       // Current system time in milliseconds
@@ -161,6 +156,8 @@
   * The simplified PWM uses just 2 phases:
   * - Full brightness LEDs are on during both phases (100% duty cycle)
   * - Half brightness LEDs are only on during phase 0 (50% duty cycle)
+  * 
+  * IMPROVED: Now uses lookup table for faster execution
   */
  ISR(TCB1_INT_vect) {
      // Turn off all rows first to prevent ghosting during transition
@@ -178,39 +175,21 @@
      // Set all columns high initially (all LEDs off)
      COLS_PORT.OUTSET = COL1_PIN | COL2_PIN | COL3_PIN | COL4_PIN;
      
-     // For each column, check if the corresponding LED should be lit
+     // Use lookup table to quickly determine which LEDs should be lit
+     // This is much faster than calculating indices every interrupt
      for (uint8_t col = 0; col < 4; col++) {
-         // Calculate the LED index based on column and current row
-         uint8_t led_idx;
-         
-         if (col < 2) {
-             // Columns 0-1: ISO/Aperture LEDs
-             // Column 0 handles logical rows 0-5, Column 1 handles logical rows 6-11
-             uint8_t logical_row = (col == 0) ? current_row : (current_row + 6);
-             led_idx = logical_row;  // Indices 0-11 for ISO/Aperture
-         } else {
-             // Columns 2-3: Shutter Speed LEDs
-             // Column 2 handles logical rows 0-5, Column 3 handles logical rows 6-11
-             uint8_t logical_row = (col == 2) ? current_row : (current_row + 6);
-             led_idx = logical_row + LEDS_PER_COLUMN;  // Indices 12-23 for Shutter
-         }
+         // Get the LED index from our pre-calculated lookup table
+         uint8_t led_idx = led_index_lookup[current_row][col];
          
          // Check if LED should be on in current PWM phase
-         bool should_be_on = false;
-         
          if (led_matrix_data[led_idx]) {
              if (led_brightness[led_idx] == FULL_BRIGHTNESS) {
                  // Full brightness - always on (both phases)
-                 should_be_on = true;
-             } else if (led_brightness[led_idx] == HALF_BRIGHTNESS) {
+                 COLS_PORT.OUTCLR = column_pins[col];
+             } else if (led_brightness[led_idx] == HALF_BRIGHTNESS && pwm_phase == 0) {
                  // Half brightness - only on during first phase (50% duty cycle)
-                 should_be_on = (pwm_phase == 0);
+                 COLS_PORT.OUTCLR = column_pins[col];
              }
-         }
-         
-         if (should_be_on) {
-             // Turn on this LED by setting its column LOW (active low)
-             COLS_PORT.OUTCLR = column_pins[col];
          }
      }
      
@@ -235,8 +214,9 @@
   */
  void init_gpio(void) {
      /* Configure button pins as inputs with pull-ups */
+     /* SIMPLIFIED: Mode button now only needs falling edge detection */
      PORTA.DIRCLR = MODE_BUTTON_PIN;  // Mode button (PA1)
-     PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_BOTHEDGES_gc;  // Both edges for press and release
+     PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;  // Only falling edge
      
      PORTA.DIRCLR = READ_BUTTON_PIN;  // Read button (PA2)
      PORTA.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
@@ -423,6 +403,8 @@
   * - For whole second shutter speeds (≥1 second):
   *   - Main LED and potentially next LED (if >25% to next) blink at 2Hz
   * 
+  * IMPROVED: Now uses the clearer interpolation function from light_meter.c
+  * 
   * Parameters:
   *   shutter_speed - The calculated shutter speed in seconds
   */
@@ -435,43 +417,17 @@
      // Determine if showing seconds or fractions of a second
      showing_seconds = (shutter_speed >= 1.0);
      
-     // Prepare the value for comparison with our standard values
-     float display_speed = showing_seconds ? shutter_speed : 1.0 / shutter_speed;
-     
-     // Find the nearest standard shutter speed with early termination
-     int index = -1;
-     float min_diff = 1000000.0;
-     
-     for (int i = 0; i < SHUTTER_COUNT; i++) {
-         float diff = fabsf(display_speed - shutter_speed_values[i]);
-         if (diff < min_diff) {
-             min_diff = diff;
-             index = i;
-         } else if (diff > min_diff) {
-             // Values are getting worse, we've passed the minimum
-             break;
-         }
-     }
+     // Find the nearest standard shutter speed
+     int index = find_nearest_shutter_index(shutter_speed);
      
      // Light up the main LED for the nearest shutter speed
      set_led(index, 1, true);
      
-     // Check if we need to show an intermediate value
-     float percent_to_next = 0.0;
-     bool show_next_led = false;
+     // Check if we need to show an intermediate value using the interpolation function
+     float interpolation = get_shutter_interpolation(shutter_speed, index);
      
-     if (index < (SHUTTER_COUNT - 1)) {
-         // Calculate how far we are to the next standard value
-         float range = shutter_speed_values[index+1] - shutter_speed_values[index];
-         percent_to_next = (display_speed - shutter_speed_values[index]) / range;
-         
-         // If more than 25% to next value, we'll indicate this
-         show_next_led = (percent_to_next > 0.25);
-     }
-     
-     // If showing an intermediate value and not at the top end
-     if (show_next_led && index < (SHUTTER_COUNT - 1)) {
-         // Turn on the next LED at half brightness
+     // If more than 25% to next value and not at the top end, show next LED at half brightness
+     if (interpolation > 0.25 && index < (SHUTTER_COUNT - 1)) {
          set_led_brightness(index + 1, 1, HALF_BRIGHTNESS);
      }
  }
@@ -480,9 +436,9 @@
   * Timer interrupt service routine
   * 
   * This function is called every millisecond by the Timer/Counter B0 interrupt.
-  * It handles time tracking, button hold detection, and blinking effects.
+  * It handles time tracking and blinking effects.
   * 
-  * Optimized to only process blinking when needed, reducing CPU load.
+  * IMPROVED: Removed mode button hold detection code
   */
  ISR(TCB0_INT_vect) {
      // Increment millisecond counter
@@ -491,14 +447,6 @@
      // Static variables to track next blink times for efficiency
      static uint32_t next_iso_blink = 0;
      static uint32_t next_seconds_blink = 0;
-     
-     // Check if mode button is being held
-     if (mode_button_down && !mode_button_held) {
-         if (TIME_SINCE(mode_button_press_time) >= BUTTON_HOLD_THRESHOLD) {
-             // Mode button has been held down long enough
-             mode_button_held = true;
-         }
-     }
      
      // Check if it's time to verify battery status
      if (TIME_ELAPSED(last_battery_check, BATTERY_CHECK_INTERVAL)) {
@@ -548,21 +496,14 @@
              if (last_lux_reading > 0) {
                  float shutter_speed = calculate_shutter_speed(last_lux_reading, iso_setting, aperture_setting);
                  
-                 // We need to restore the LEDs but can't call update_shutter_display as that would
-                 // reset the blink state. Instead, manually restore the LED states.
-                 float display_speed = shutter_speed >= 1.0 ? shutter_speed : 1.0 / shutter_speed;
-                 int index = find_nearest_shutter_index(display_speed);
+                 // Restore the LED states
+                 int index = find_nearest_shutter_index(shutter_speed);
                  set_led(index, 1, true);
                  
-                 // If needed, also show the next LED for intermediate values
-                 float percent_to_next = 0.0;
-                 if (index < (SHUTTER_COUNT - 1)) {
-                     float range = shutter_speed_values[index+1] - shutter_speed_values[index];
-                     percent_to_next = (display_speed - shutter_speed_values[index]) / range;
-                     
-                     if (percent_to_next > 0.25 && index < (SHUTTER_COUNT - 1)) {
-                         set_led_brightness(index + 1, 1, HALF_BRIGHTNESS);
-                     }
+                 // Check for intermediate value display
+                 float interpolation = get_shutter_interpolation(shutter_speed, index);
+                 if (interpolation > 0.25 && index < (SHUTTER_COUNT - 1)) {
+                     set_led_brightness(index + 1, 1, HALF_BRIGHTNESS);
                  }
              }
          } else {
@@ -582,34 +523,17 @@
   * 
   * This function is called when a button press is detected.
   * It includes debouncing to prevent false button detections.
+  * 
+  * IMPROVED: Simplified mode button handling - no more hold detection
   */
  ISR(PORTA_PORT_vect) {
      /* Check which button triggered the interrupt */
      
-     // Mode button handling for both press and release
+     // Mode button - now only needs to handle simple press
      if (PORTA.INTFLAGS & MODE_BUTTON_PIN) {
-         // Check if it's a press (pin went low) or release (pin went high)
-         if (!(PORTA.IN & MODE_BUTTON_PIN)) {
-             // Button is pressed (pin is low)
-             if (debounce_check(&last_mode_press_time)) {
-                 mode_button_down = true;
-                 mode_button_press_time = current_time;
-                 last_activity_time = current_time;
-             }
-         } else {
-             // Button is released (pin is high)
-             mode_button_down = false;
-             
-             if (mode_button_held) {
-                 // This was a release after holding, just clear the flag
-                 mode_button_held = false;
-             } else {
-                 // This was a regular click (not held)
-                 if (debounce_check(&last_mode_press_time)) {
-                     mode_button_flag = true;
-                     last_activity_time = current_time;
-                 }
-             }
+         if (debounce_check(&last_mode_press_time)) {
+             mode_button_flag = true;
+             last_activity_time = current_time;
          }
          PORTA.INTFLAGS = MODE_BUTTON_PIN;  // Clear the interrupt flag
      }
