@@ -1,125 +1,69 @@
-/**
- * Power Management Functions
- * 
- * This header file defines functions for managing power consumption,
- * including sleep modes, wake-up handling, and battery monitoring.
- * 
- * The design now uses a single LIR2450 rechargeable lithium coin cell
- * instead of the previous 3 LR44 batteries, requiring appropriate voltage
- * monitoring and power management.
- */
+#ifndef POWER_MANAGEMENT_H
+#define POWER_MANAGEMENT_H
 
- #ifndef POWER_MANAGEMENT_H
- #define POWER_MANAGEMENT_H
- 
- #include <stdint.h>
- 
- /**
-  * CONSTANTS AND DEFINITIONS
-  */
- 
- /* Battery monitoring */
- #define BATTERY_ADC_PIN      PIN2_bm    // Battery level ADC input on PC2
- #define BATTERY_ADC_PORT     PORTC      // Port for battery ADC pin
- 
- /* Battery voltage thresholds for LIR2450 cell */
- #define BATTERY_FULL_MV      4200       // Fully charged LIR2450 (4.2V)
- #define BATTERY_NOMINAL_MV   3700       // Nominal voltage
- #define BATTERY_LOW_MV       3300       // Low battery warning threshold
- #define BATTERY_CRITICAL_MV  3000       // Critical level - protect battery from overdischarge
- 
- /**
-  * FUNCTION DECLARATIONS
-  */
- 
- /**
-  * Enter sleep mode
-  * 
-  * This function puts the device into a low-power sleep state to conserve
-  * battery life. In sleep mode, most peripherals are disabled, and the CPU
-  * stops executing instructions. The device will wake up when an interrupt
-  * occurs (e.g., a button press).
-  * 
-  * Before entering sleep mode, this function:
-  * 1. Disables unnecessary peripherals
-  * 2. Turns off all LEDs
-  * 3. Puts the VEML7700 in power save mode
-  * 4. Configures the AVR's sleep mode
-  * 
-  * The device remains in sleep mode until an interrupt occurs.
-  */
- void enter_sleep_mode(void);
- 
- /**
-  * Wake from sleep mode
-  * 
-  * This function restores normal operation after waking from sleep mode.
-  * It is called automatically when the device wakes up from sleep.
-  * 
-  * This function:
-  * 1. Disables sleep mode
-  * 2. Re-enables peripherals
-  * 3. Restores LED matrix to normal operation
-  * 4. Puts the VEML7700 back into normal mode
-  */
- void wake_from_sleep(void);
- 
- /**
-  * Configure sleep mode
-  * 
-  * This function prepares the microcontroller for sleep mode by:
-  * 1. Setting the desired sleep mode (Power-Down)
-  * 2. Enabling the sleep mode functionality
-  * 
-  * This is called by enter_sleep_mode() before actually entering sleep.
-  */
- void configure_sleep_mode(void);
- 
- /**
-  * Initialize battery monitoring
-  * 
-  * This function initializes the ADC for battery voltage measurement:
-  * 1. Configures the ADC pin
-  * 2. Sets up the ADC with proper reference and settings
-  * 3. Enables the ADC peripheral
-  */
- void init_battery_monitoring(void);
- 
- /**
-  * Get battery voltage in millivolts
-  * 
-  * This function measures the actual battery voltage by:
-  * 1. Taking an ADC reading
-  * 2. Converting the ADC value to a voltage
-  * 3. Applying any calibration factors
-  * 
-  * Returns:
-  *   The battery voltage in millivolts
-  */
- uint16_t get_battery_voltage(void);
- 
- /**
-  * Check if battery is critically low
-  * 
-  * This function checks if the battery voltage is below the critical
-  * threshold where operation should stop to prevent damage to the battery.
-  * 
-  * Returns:
-  *   true if battery is critically low, false otherwise
-  */
- bool is_battery_critical(void);
- 
- /**
-  * Check if battery is low but not critical
-  * 
-  * Returns:
-  *   true if battery is low but not critical, false otherwise
-  */
- bool is_battery_low(void);
- 
- /**
-  * Flash the bottom two LEDs three times to indicate low battery
-  */
- void flash_low_battery_warning(void);
- 
- #endif /* POWER_MANAGEMENT_H */
+#include <stdint.h>
+#include <stdbool.h>
+
+// Battery ADC Pin (PC2 as per README)
+#define BATTERY_ADC_CHANNEL  ADC_MUXPOS_AIN2_gc // ADC Channel for PC2
+
+// Battery voltage thresholds for LIR2450 (in millivolts)
+#define BATTERY_VOLTAGE_FULL_MV      4200 // Fully charged LIR2450
+#define BATTERY_VOLTAGE_NOMINAL_MV   3700 // Nominal voltage
+#define BATTERY_VOLTAGE_LOW_MV       3300 // Low battery warning threshold
+#define BATTERY_VOLTAGE_CRITICAL_MV  3000 // Critical - protect battery
+
+// VDD voltage provided by STNS01 regulator (e.g., 3.1V = 3100mV)
+#define VDD_VOLTAGE_MV 3100 
+// Voltage divider resistors (example: R1=470k from VBAT, R2=220k to GND, ADC measures across R2)
+// V_adc = V_bat * (R2 / (R1 + R2))
+// V_bat = V_adc * ((R1 + R2) / R2)
+#define VOLTAGE_DIVIDER_R1   470000.0f // Ohms
+#define VOLTAGE_DIVIDER_R2   220000.0f // Ohms
+#define VOLTAGE_DIVIDER_FACTOR ((VOLTAGE_DIVIDER_R1 + VOLTAGE_DIVIDER_R2) / VOLTAGE_DIVIDER_R2)
+
+
+/**
+ * @brief Initializes battery monitoring (ADC setup).
+ */
+void init_battery_monitoring(void);
+
+/**
+ * @brief Reads the current battery voltage.
+ * @return uint16_t Battery voltage in millivolts.
+ */
+uint16_t get_battery_voltage_mv(void);
+
+/**
+ * @brief Checks if the battery is critically low.
+ * @return true If battery voltage is below BATTERY_VOLTAGE_CRITICAL_MV.
+ * @return false Otherwise.
+ */
+bool is_battery_critical(void);
+
+/**
+ * @brief Checks if the battery is low (but not critical).
+ * @return true If battery voltage is below BATTERY_VOLTAGE_LOW_MV and not critical.
+ * @return false Otherwise.
+ */
+bool is_battery_low(void);
+
+/**
+ * @brief Flashes LEDs to indicate low battery.
+ * This is a blocking function.
+ */
+void flash_low_battery_warning(void);
+
+/**
+ * @brief Puts the device into Power-Down sleep mode.
+ * Handles disabling peripherals and configuring wake-up sources.
+ */
+void enter_power_down_sleep(void);
+
+/**
+ * @brief Actions to take upon waking from sleep.
+ * Re-enables peripherals.
+ */
+void wake_from_power_down_sleep(void);
+
+#endif // POWER_MANAGEMENT_H

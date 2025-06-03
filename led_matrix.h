@@ -1,162 +1,100 @@
-/**
- * LED Matrix Control Interface - Optimized for 2 Brightness Levels
- * 
- * This header file defines functions and constants for controlling LEDs
- * using matrix scanning. This approach directly drives the LEDs
- * from the microcontroller pins with an optimized 2-level brightness control.
- * 
- * LED Matrix Organization:
- * Our light meter has 24 LEDs in a 6×4 matrix arrangement:
- * - 6 rows (anodes)
- * - 4 columns (cathodes)
- * - Column 1-2: ISO/Aperture values (12 LEDs total)
- * - Column 3-4: Shutter speed values (12 LEDs total)
- * 
- * IMPROVED: Added explicit mapping functions and lookup table support
- * to simplify the complex relationship between logical and physical positions.
- */
-
 #ifndef LED_MATRIX_H
 #define LED_MATRIX_H
 
 #include <stdint.h>
 #include <stdbool.h>
 
-/**
- * CONSTANTS AND DEFINITIONS
- */
+// Constants for LED matrix
+#define TOTAL_LEDS 24
+#define LEDS_PER_COLUMN 12
+#define ROWS_PER_COLUMN 6 // Physical rows used for each logical column half
 
-/* LED Matrix Pins */
-/* Row pins (anodes) */
-#define ROW1_PIN    PIN5_bm    // Row 1 on PA5
-#define ROW2_PIN    PIN6_bm    // Row 2 on PA6
-#define ROW3_PIN    PIN7_bm    // Row 3 on PA7
-#define ROW4_PIN    PIN0_bm    // Row 4 on PC0
-#define ROW5_PIN    PIN1_bm    // Row 5 on PC1
-#define ROW6_PIN    PIN3_bm    // Row 6 on PC3
+// Brightness levels
+#define HALF_BRIGHTNESS 0
+#define FULL_BRIGHTNESS 1
 
-/* Column pins (cathodes) */
-#define COL1_PIN    PIN2_bm    // Column 1 on PB2 (ISO/Aperture 0-5)
-#define COL2_PIN    PIN3_bm    // Column 2 on PB3 (ISO/Aperture 6-11)
-#define COL3_PIN    PIN4_bm    // Column 3 on PB4 (Shutter Speed 0-5)
-#define COL4_PIN    PIN5_bm    // Column 4 on PB5 (Shutter Speed 6-11)
+// Pin definitions for LED Matrix (Anodes - Rows, Cathodes - Columns)
+// Match these with your PCB layout and README
+// Rows (Anodes)
+#define ROW1_PIN         PIN5_bm // PA5
+#define ROW2_PIN         PIN6_bm // PA6
+#define ROW3_PIN         PIN7_bm // PA7
+#define ROW4_PIN         PIN0_bm // PC0
+#define ROW5_PIN         PIN1_bm // PC1
+#define ROW6_PIN         PIN3_bm // PC3
 
-/* Port definitions */
-#define ROWS_PORT_A PORTA      // Port A for rows 1-3
-#define ROWS_PORT_C PORTC      // Port C for rows 4-6
-#define COLS_PORT   PORTB      // Port B for all columns
+// <<<< CHANGED VPORTx to PORTx HERE >>>>
+#define ROWS_PORT_A      PORTA // PORTA for rows 1-3
+#define ROWS_PORT_C      PORTC // PORTC for rows 4-6
 
-/* Array indices for row and column ports */
-#define ROW_PORT_A  0          // Index for Port A
-#define ROW_PORT_C  1          // Index for Port C
+// Columns (Cathodes) - All on PORTB
+#define COL1_PIN         PIN2_bm // PB2
+#define COL2_PIN         PIN3_bm // PB3
+#define COL3_PIN         PIN4_bm // PB4
+#define COL4_PIN         PIN5_bm // PB5
+#define COLS_PORT        PORTB   // <<<< CHANGED VPORTB to PORTB HERE >>>>
 
-/* LED Matrix Dimensions */
-#define ROWS_PER_COLUMN 6      // 6 rows per column
-#define COLS_PER_SIDE   2      // 2 columns per side (left/right)
-#define LEDS_PER_COLUMN 12     // Total 12 LEDs per logical column (split across 2 physical columns)
-#define TOTAL_LEDS      24     // Total of 24 LEDs
 
-/* Brightness levels - easily adjustable during development */
-#define FULL_BRIGHTNESS 1      // Full brightness (100% duty cycle)
-#define HALF_BRIGHTNESS 0      // Half brightness (50% duty cycle)
-
-/* PWM duty cycle adjustments (as percentages) - tune during development */
-#define FULL_DUTY_CYCLE 100    // 100% duty cycle
-#define HALF_DUTY_CYCLE 50     // 50% duty cycle  
-
-/* Display mode options */
-#define DISPLAY_APERTURE  0    // Display mode for aperture
-#define DISPLAY_ISO       1    // Display mode for ISO
-
-/**
- * STRUCTURE DEFINITIONS
- */
-
-/**
- * Structure to represent a physical position in the LED matrix
- * This helps clarify the mapping between logical and physical positions
- */
+// Structure to represent physical position in the matrix
 typedef struct {
-    uint8_t physical_row;      // Physical row in matrix (0-5)
-    uint8_t physical_col;      // Physical column in matrix (0-3)
+    uint8_t physical_row; // 0-5
+    uint8_t physical_col; // 0-3
 } physical_position_t;
 
-/**
- * FUNCTION DECLARATIONS
- */
+// External declarations for LED data arrays (defined in led_matrix.c)
+extern volatile uint8_t led_matrix_data[TOTAL_LEDS];
+extern volatile uint8_t led_brightness[TOTAL_LEDS];
+
+// External declaration for ISR-modified variables (defined in led_matrix.c)
+extern volatile uint8_t current_row; // Physical row index for ISR
+extern volatile uint8_t pwm_phase;   // PWM phase for ISR
+
 
 /**
- * Initialize LED matrix control pins and timer for PWM
+ * @brief Initializes the LED matrix control pins and lookup table.
+ * Timer initialization is separate.
  */
 void init_led_matrix(void);
 
 /**
- * Set an LED on or off
- * 
- * @param row - LED row (0-11) in logical arrangement
- * @param col - LED column (0-1) in logical arrangement
- * @param state - true to turn on, false to turn off
- */
-void set_led(uint8_t row, uint8_t col, bool state);
-
-/**
- * Set an LED's brightness level
- * 
- * @param row - LED row (0-11) in logical arrangement
- * @param col - LED column (0-1) in logical arrangement
- * @param brightness - Either FULL_BRIGHTNESS or HALF_BRIGHTNESS
- */
-void set_led_brightness(uint8_t row, uint8_t col, uint8_t brightness);
-
-/**
- * Initialize the timer for LED matrix scanning
+ * @brief Initializes the timer (TCB1) for LED matrix scanning and PWM.
  */
 void init_matrix_timer(void);
 
 /**
- * Map a logical LED position to its physical matrix position
- * 
- * @param row - Logical LED row (0-11)
- * @param col - Logical LED column (0-1)
- * @param matrix_row - Pointer to store the physical matrix row (0-5)
- * @param matrix_col - Pointer to store the physical matrix column (0-3)
+ * @brief Sets an LED on or off.
+ * @param row Logical LED row (0-11).
+ * @param col Logical LED column (0=ISO/Aperture, 1=Shutter).
+ * @param state True to turn on, false to turn off.
  */
-void map_led_to_matrix(uint8_t row, uint8_t col, uint8_t *matrix_row, uint8_t *matrix_col);
+void set_led(uint8_t row, uint8_t col, bool state);
 
 /**
- * Get the physical position for a logical LED position
- * This is a cleaner interface using the physical_position_t structure
- * 
- * @param logical_row - Logical LED row (0-11)
- * @param logical_col - Logical LED column (0-1)
- * @return physical_position_t structure containing the physical row and column
+ * @brief Sets an LED's brightness level.
+ * @param row Logical LED row (0-11).
+ * @param col Logical LED column (0=ISO/Aperture, 1=Shutter).
+ * @param brightness_level Either FULL_BRIGHTNESS or HALF_BRIGHTNESS.
  */
-physical_position_t get_physical_position(uint8_t logical_row, uint8_t logical_col);
+void set_led_brightness(uint8_t row, uint8_t col, uint8_t brightness_level);
 
 /**
- * Get the LED array index from physical matrix position
- * This is used by the ISR to quickly determine which LED data to check
- * 
- * @param phys_row - Physical matrix row (0-5)
- * @param phys_col - Physical matrix column (0-3)
- * @return The index into led_matrix_data[] and led_brightness[] arrays
+ * @brief Turns all LEDs in the matrix off immediately.
+ * This function directly manipulates ports to turn off LEDs.
  */
-uint8_t get_led_index_from_physical(uint8_t phys_row, uint8_t phys_col);
+void led_matrix_all_off_immediate(void);
 
 /**
- * Initialize the LED lookup table
- * This pre-calculates all mappings to avoid repeated calculations in the ISR
+ * @brief Clears all LED data in the software buffers.
+ * This sets all LEDs to off in the `led_matrix_data` and `led_brightness` arrays.
+ * The matrix scanning ISR will then turn them off on the next refresh cycle.
  */
-void init_led_lookup_table(void);
+void led_matrix_clear_all_data(void);
 
-/* External variable declarations */
-extern uint8_t led_matrix_data[TOTAL_LEDS];     // Current state of each LED (on/off)
-extern uint8_t led_brightness[TOTAL_LEDS];      // Brightness level for each LED (0=half, 1=full)
-extern volatile uint8_t current_row;            // Current active row for matrix scanning
-extern const uint8_t column_pins[4];            // Array of column pins for LED matrix
-extern const uint8_t row_pins[6];               // Array of row pins for LED matrix
-extern const uint8_t row_ports[6];              // Array to track which port each row belongs to
-extern volatile uint8_t pwm_phase;              // PWM phase tracker for brightness control
-extern uint8_t led_index_lookup[6][4];          // Lookup table for fast LED index calculation
+// This static array is used by ISR and led_matrix.c, so it's better kept in led_matrix.c
+// extern const uint8_t row_pins_array[ROWS_PER_COLUMN]; // Not needed as extern if only used in led_matrix.c
+// extern const uint8_t col_pins_array[4];             // Not needed as extern if only used in led_matrix.c
+extern uint8_t led_index_lookup[ROWS_PER_COLUMN][4]; // This needs to be accessible by ISR in main.c
 
-#endif /* LED_MATRIX_H */
+
+#endif // LED_MATRIX_H
+

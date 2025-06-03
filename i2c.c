@@ -1,164 +1,134 @@
 /**
  * I2C Communication Implementation
- * 
- * This file contains the implementation of I2C communication functions
- * used throughout the light meter project.
- * 
- * Updated to include proper error checking for NACK conditions,
- * which occur when a device doesn't acknowledge a transmission.
+ * * Implements I2C master communication functions for the ATtiny3217.
+ * Includes error checking for NACK conditions.
  */
 
-#include <avr/io.h>
-#include "i2c.h"
-
-/**
- * Initialize I2C communication
- */
-void init_i2c(void) {
-    /* Set up TWI peripheral for standard speed (100kHz) */
-    TWI0.MBAUD = 16;
-    
-    /* Enable TWI as master */
-    TWI0.MCTRLA = TWI_ENABLE_bm;
-    
-    /* Set up for Smart Mode (automatic ACK/NACK handling) */
-    TWI0.MCTRLB = TWI_MCMD_RECVTRANS_gc;
-}
-
-/**
- * Write data to an I2C device
- * 
- * This function now includes proper error checking for NACK conditions.
- * A NACK (Not Acknowledge) indicates that:
- * - The device is not present on the bus
- * - The device is busy and cannot respond
- * - There's a communication error
- * 
- * Returns:
- *   0 if successful
- *   1 if NACK received during address phase
- *   2 if NACK received during data phase
- */
-uint8_t i2c_write(uint8_t device_addr, uint8_t reg, uint8_t *data, uint8_t length) {
-    /* Start transmission */
-    TWI0.MADDR = (device_addr << 1) | 0; // Write operation
-    
-    /* Wait for transmission to start */
-    while (!(TWI0.MSTATUS & TWI_RIF_bm));
-    
-    /* Check for NACK after sending device address */
-    if (TWI0.MSTATUS & TWI_RXACK_bm) {
-        /* Device did not acknowledge - stop and return error */
-        TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-        return 1;  // Error: Device not responding
-    }
-    
-    /* Send register address */
-    TWI0.MDATA = reg;
-    
-    /* Wait for data to be sent */
-    while (!(TWI0.MSTATUS & TWI_RIF_bm));
-    
-    /* Check for NACK after sending register address */
-    if (TWI0.MSTATUS & TWI_RXACK_bm) {
-        /* Register address not acknowledged - stop and return error */
-        TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-        return 2;  // Error: Register not acknowledged
-    }
-    
-    /* Send all data bytes */
-    for (uint8_t i = 0; i < length; i++) {
-        TWI0.MDATA = data[i];
-        
-        /* Wait for data to be sent */
-        while (!(TWI0.MSTATUS & TWI_RIF_bm));
-        
-        /* Check for NACK after each data byte */
-        if (TWI0.MSTATUS & TWI_RXACK_bm) {
-            /* Data not acknowledged - stop and return error */
-            TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-            return 2;  // Error: Data not acknowledged
-        }
-    }
-    
-    /* End transmission */
-    TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-    
-    return 0;  // Success
-}
-
-/**
- * Read data from an I2C device
- * 
- * This function now includes proper error checking for NACK conditions
- * during both the write phase (register selection) and read phase.
- * 
- * Returns:
- *   0 if successful
- *   1 if NACK received during address phase
- *   2 if NACK received during register write phase
- *   3 if NACK received during read restart phase
- */
-uint8_t i2c_read(uint8_t device_addr, uint8_t reg, uint8_t *data, uint8_t length) {
-    /* Start transmission for register selection */
-    TWI0.MADDR = (device_addr << 1) | 0; // Write operation
-    
-    /* Wait for transmission to start */
-    while (!(TWI0.MSTATUS & TWI_RIF_bm));
-    
-    /* Check for NACK after sending device address (write) */
-    if (TWI0.MSTATUS & TWI_RXACK_bm) {
-        /* Device did not acknowledge - stop and return error */
-        TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-        return 1;  // Error: Device not responding
-    }
-    
-    /* Send register address */
-    TWI0.MDATA = reg;
-    
-    /* Wait for data to be sent */
-    while (!(TWI0.MSTATUS & TWI_RIF_bm));
-    
-    /* Check for NACK after sending register address */
-    if (TWI0.MSTATUS & TWI_RXACK_bm) {
-        /* Register address not acknowledged - stop and return error */
-        TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-        return 2;  // Error: Register not acknowledged
-    }
-    
-    /* Send restart for read operation */
-    TWI0.MADDR = (device_addr << 1) | 1; // Read operation
-    
-    /* Wait for restart to complete */
-    while (!(TWI0.MSTATUS & TWI_RIF_bm));
-    
-    /* Check for NACK after sending device address (read) */
-    if (TWI0.MSTATUS & TWI_RXACK_bm) {
-        /* Device did not acknowledge read request - stop and return error */
-        TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-        return 3;  // Error: Device not responding to read
-    }
-    
-    /* Read all data bytes */
-    for (uint8_t i = 0; i < length; i++) {
-        /* For last byte, send NACK after */
-        if (i == length - 1) {
-            TWI0.MCTRLB = TWI_ACKACT_NACK_gc | TWI_MCMD_RECVTRANS_gc;
-        } else {
-            TWI0.MCTRLB = TWI_ACKACT_ACK_gc | TWI_MCMD_RECVTRANS_gc;
-        }
-        
-        /* Read byte from TWI data register */
-        data[i] = TWI0.MDATA;
-        
-        /* Wait for data to be received (except for last byte) */
-        if (i < length - 1) {
-            while (!(TWI0.MSTATUS & TWI_RIF_bm));
-        }
-    }
-    
-    /* End transmission */
-    TWI0.MCTRLB = TWI_MCMD_STOP_gc;
-    
-    return 0;  // Success
-}
+ #include <avr/io.h>
+ #include "i2c.h"
+ 
+ // Defines for I2C timing based on F_CPU=4MHz for 100kHz SCL
+ // TWI_BAUD = (F_CPU / (2 * F_SCL)) - 5
+ // TWI_BAUD = (4000000 / (2 * 100000)) - 5 = (4000000 / 200000) - 5 = 20 - 5 = 15
+ #define TWI_MBAUD_100KHZ 15 
+ 
+ /**
+  * @brief Initialize I2C communication.
+  */
+ void init_i2c(void) {
+     /* Set up TWI peripheral for standard speed (100kHz) with F_CPU = 4MHz */
+     TWI0.MBAUD = (uint8_t)TWI_MBAUD_100KHZ; 
+     
+     /* Enable TWI as master, enable smart mode (auto ACK/NACK) */
+     TWI0.MCTRLA = TWI_ENABLE_bm | TWI_SMEN_bm;
+     
+     /* Force bus state to idle */
+     TWI0.MSTATUS = TWI_BUSSTATE_IDLE_gc;
+ }
+ 
+ /**
+  * @brief Write data to an I2C device.
+  */
+ uint8_t i2c_write(uint8_t device_addr, uint8_t reg, uint8_t *data, uint8_t length) {
+     /* Send slave address with write bit (0) */
+     TWI0.MADDR = (device_addr << 1) & ~0x01;
+     
+     /* Wait for address transmission to complete or error */
+     while (!(TWI0.MSTATUS & (TWI_WIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+ 
+     /* Check for NACK (address not acknowledged) or bus error/arbitration lost */
+     if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+         TWI0.MCTRLB = TWI_MCMD_STOP_gc; // Send stop condition
+         return 1; // Error: Device not responding or bus error
+     }
+     
+     /* Send register address */
+     TWI0.MDATA = reg;
+     
+     /* Wait for data transmission to complete or error */
+     while (!(TWI0.MSTATUS & (TWI_WIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+ 
+     /* Check for NACK (register not acknowledged) or bus error */
+     if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+         TWI0.MCTRLB = TWI_MCMD_STOP_gc; // Send stop condition
+         return 2; // Error: Register not acknowledged or bus error
+     }
+     
+     /* Send all data bytes */
+     for (uint8_t i = 0; i < length; i++) {
+         TWI0.MDATA = data[i];
+         
+         /* Wait for data transmission to complete or error */
+         while (!(TWI0.MSTATUS & (TWI_WIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+         
+         /* Check for NACK (data not acknowledged) or bus error */
+         if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+             TWI0.MCTRLB = TWI_MCMD_STOP_gc; // Send stop condition
+             return 2; // Error: Data not acknowledged or bus error
+         }
+     }
+     
+     /* End transmission with a stop condition */
+     TWI0.MCTRLB = TWI_MCMD_STOP_gc;
+     
+     return 0; // Success
+ }
+ 
+ /**
+  * @brief Read data from an I2C device.
+  */
+ uint8_t i2c_read(uint8_t device_addr, uint8_t reg, uint8_t *data, uint8_t length) {
+     /* Send slave address with write bit (0) to set register pointer */
+     TWI0.MADDR = (device_addr << 1) & ~0x01;
+     
+     /* Wait for address transmission to complete or error */
+     while (!(TWI0.MSTATUS & (TWI_WIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+     
+     /* Check for NACK (address not acknowledged) or bus error */
+     if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+         TWI0.MCTRLB = TWI_MCMD_STOP_gc;
+         return 1; // Error: Device not responding (write phase)
+     }
+     
+     /* Send register address */
+     TWI0.MDATA = reg;
+ 
+     /* Wait for data transmission to complete or error */
+     while (!(TWI0.MSTATUS & (TWI_WIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+ 
+     /* Check for NACK (register not acknowledged) or bus error */
+     if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+         TWI0.MCTRLB = TWI_MCMD_STOP_gc;
+         return 2; // Error: Register not acknowledged
+     }
+     
+     /* Send slave address with read bit (1) using repeated start */
+     TWI0.MADDR = (device_addr << 1) | 0x01;
+     
+     /* Wait for address transmission to complete or error */
+     while (!(TWI0.MSTATUS & (TWI_RIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm | TWI_RXACK_bm)));
+ 
+     /* Check for NACK (address not acknowledged for read) or bus error */
+     if (TWI0.MSTATUS & (TWI_RXACK_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)) {
+         TWI0.MCTRLB = TWI_MCMD_STOP_gc;
+         return 3; // Error: Device not responding (read phase)
+     }
+     
+     /* Read all data bytes */
+     for (uint8_t i = 0; i < length; i++) {
+         /* Wait for data byte to be received */
+          while (!(TWI0.MSTATUS & (TWI_RIF_bm | TWI_ARBLOST_bm | TWI_BUSERR_bm)));
+         
+         data[i] = TWI0.MDATA;
+         
+         /* Send ACK for all bytes except the last one */
+         if (i < length - 1) {
+             TWI0.MCTRLB = TWI_MCMD_RECVTRANS_gc; // Send ACK
+         } else {
+             TWI0.MCTRLB = TWI_ACKACT_NACK_gc | TWI_MCMD_STOP_gc; // Send NACK and then STOP
+         }
+     }
+     
+     return 0; // Success
+ }
+ 

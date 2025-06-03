@@ -1,305 +1,261 @@
 /**
  * VEML7700 Light Sensor Implementation
- * 
- * This file contains the implementation of functions for
- * interfacing with the VEML7700 ambient light sensor via I2C.
- * 
- * Updated to use compile-time constants for integration time delays,
- * reducing code size and fixing compilation errors.
+ * * Provides functions to interface with the VEML7700 ambient light sensor
+ * via I2C, including automatic gain and integration time adjustment.
  */
 
-#include <avr/io.h>
-#include <util/delay.h>
-#include "veml7700.h"
-#include "i2c.h"
-
-// Global variable to store the last lux reading
-float last_lux_reading = 0.0;
-
-// Current sensor settings
-static uint8_t current_gain = VEML7700_GAIN_1_8;
-static uint8_t current_integration_time = VEML7700_IT_100MS;
-
-/**
- * Write a register to the VEML7700 sensor
- * 
- * Now includes error checking from the updated I2C functions.
- */
-static uint8_t veml7700_write_register(uint8_t reg, uint16_t value) {
-    uint8_t data[2];
-    
-    // Prepare data array (low byte first, then high byte)
-    data[0] = value & 0xFF;         // Low byte
-    data[1] = (value >> 8) & 0xFF;  // High byte
-    
-    // Use centralized I2C function with error checking
-    return i2c_write(VEML7700_I2C_ADDR, reg, data, 2);
-}
-
-/**
- * Read a register from the VEML7700 sensor
- * 
- * Now includes error handling. Returns 0xFFFF on error.
- */
-static uint16_t veml7700_read_register(uint8_t reg) {
-    uint8_t data[2];
-    uint16_t value;
-    
-    // Use centralized I2C function with error checking
-    if (i2c_read(VEML7700_I2C_ADDR, reg, data, 2) != 0) {
-        // Error occurred, return maximum value to indicate error
-        return 0xFFFF;
-    }
-    
-    // Combine bytes (low byte first, then high byte)
-    value = data[0] | (data[1] << 8);
-    
-    return value;
-}
-
-/**
- * Initialize the VEML7700 sensor
- */
-void veml7700_init(void) {
-    // Configure sensor with default settings
-    // ALS integration time: 100ms
-    // Gain: 1/8
-    // Persistence: 1
-    // Interrupts: Disabled
-    // Power: Normal mode (not shutdown)
-    uint16_t config = current_integration_time | (current_gain << 11);
-    veml7700_write_register(VEML7700_REG_CONFIG, config);
-    
-    // Configure power-saving mode (disabled by default)
-    veml7700_write_register(VEML7700_REG_PSM, 0x0000);
-    
-    // Allow sensor to stabilize
-    _delay_ms(50);
-}
-
-/**
- * Read the ambient light sensor value
- */
-uint16_t veml7700_read_als(void) {
-    uint16_t value = veml7700_read_register(VEML7700_REG_ALS);
-    
-    // Check for error (0xFFFF indicates I2C error)
-    if (value == 0xFFFF) {
-        // Return 0 to indicate error in light reading
-        return 0;
-    }
-    
-    return value;
-}
-
-/**
- * Convert raw ALS value to LUX based on gain and integration time
- */
-float veml7700_get_lux(void) {
-    uint16_t raw_als = veml7700_read_als();
-    
-    // Check for error
-    if (raw_als == 0) {
-        return 0.0;
-    }
-    
-    float lux = 0.0;
-    
-    // Apply gain factor
-    float gain_factor = 1.0;
-    switch (current_gain) {
-        case VEML7700_GAIN_1:
-            gain_factor = 1.0;
-            break;
-        case VEML7700_GAIN_2:
-            gain_factor = 0.5;
-            break;
-        case VEML7700_GAIN_1_8:
-            gain_factor = 8.0;
-            break;
-        case VEML7700_GAIN_1_4:
-            gain_factor = 4.0;
-            break;
-    }
-    
-    // Apply integration time factor
-    float it_factor = 1.0;
-    switch (current_integration_time) {
-        case VEML7700_IT_25MS:
-            it_factor = 4.0;
-            break;
-        case VEML7700_IT_50MS:
-            it_factor = 2.0;
-            break;
-        case VEML7700_IT_100MS:
-            it_factor = 1.0;
-            break;
-        case VEML7700_IT_200MS:
-            it_factor = 0.5;
-            break;
-        case VEML7700_IT_400MS:
-            it_factor = 0.25;
-            break;
-        case VEML7700_IT_800MS:
-            it_factor = 0.125;
-            break;
-    }
-    
-    // Calculate lux value
-    // The factor 0.0576 is based on datasheet conversion for default settings
-    lux = (float)raw_als * 0.0576 * gain_factor * it_factor;
-    
-    return lux;
-}
-
-/**
- * Set the gain of the sensor
- */
-void veml7700_set_gain(uint8_t gain) {
-    uint16_t config = veml7700_read_register(VEML7700_REG_CONFIG);
-    
-    // Check for error
-    if (config == 0xFFFF) {
-        return;
-    }
-    
-    config &= ~(0x03 << 11); // Clear gain bits
-    config |= (gain << 11);   // Set new gain
-    veml7700_write_register(VEML7700_REG_CONFIG, config);
-    current_gain = gain;
-}
-
-/**
- * Set the integration time of the sensor
- */
-void veml7700_set_integration_time(uint8_t it) {
-    uint16_t config = veml7700_read_register(VEML7700_REG_CONFIG);
-    
-    // Check for error
-    if (config == 0xFFFF) {
-        return;
-    }
-    
-    config &= ~(0x0F << 6); // Clear integration time bits
-    config |= it;           // Set new integration time
-    veml7700_write_register(VEML7700_REG_CONFIG, config);
-    current_integration_time = it;
-}
-
-/**
- * Enable power save mode
- */
-void veml7700_power_save_enable(uint8_t mode) {
-    // Mode is 0-3, with 3 being the most power saving
-    veml7700_write_register(VEML7700_REG_PSM, 0x0001 | (mode << 1));
-}
-
-/**
- * Disable power save mode
- */
-void veml7700_power_save_disable(void) {
-    veml7700_write_register(VEML7700_REG_PSM, 0x0000);
-}
-
-/**
- * Wait for integration to complete with optimized delay
- * 
- * This helper function waits the appropriate amount of time for the current 
- * integration time setting using compile-time constants only.
- * This is the most efficient approach and avoids all variable delay issues.
- */
-static void wait_for_integration(void) {
-    // Switch on the actual integration time setting to use compile-time constants
-    // Each delay includes the 5ms safety margin from get_integration_delay()
-    switch (current_integration_time) {
-        case VEML7700_IT_25MS:
-            _delay_ms(30);  // 25ms + 5ms safety margin
-            break;
-            
-        case VEML7700_IT_50MS:
-            _delay_ms(55);  // 50ms + 5ms safety margin
-            break;
-            
-        case VEML7700_IT_100MS:
-            _delay_ms(105); // 100ms + 5ms safety margin
-            break;
-            
-        case VEML7700_IT_200MS:
-            _delay_ms(205); // 200ms + 5ms safety margin
-            break;
-            
-        case VEML7700_IT_400MS:
-            // For delays > 255ms, break into chunks
-            _delay_ms(255);
-            _delay_ms(150); // Total: 405ms (400ms + 5ms safety margin)
-            break;
-            
-        case VEML7700_IT_800MS:
-            // For delays > 255ms, break into chunks  
-            _delay_ms(255);
-            _delay_ms(255);
-            _delay_ms(255);
-            _delay_ms(40);  // Total: 805ms (800ms + 5ms safety margin)
-            break;
-            
-        default:
-            // Fallback to 100ms + safety margin for unknown settings
-            _delay_ms(105);
-            break;
-    }
-}
-
-/**
- * Measure light with automatic gain and integration time adjustment
- * 
- * This function has been optimized to use compile-time constants for delays,
- * reducing wait times and improving responsiveness.
- */
-float measure_light(void) {
-    // Start with middle settings
-    veml7700_set_gain(VEML7700_GAIN_1_8);
-    veml7700_set_integration_time(VEML7700_IT_100MS);
-    
-    // Wait for the integration to complete using optimized delay
-    wait_for_integration();
-    
-    // Take initial reading
-    float lux = veml7700_get_lux();
-    uint16_t raw_als = veml7700_read_als();
-    
-    // Check for I2C error
-    if (raw_als == 0) {
-        // Communication error, return last known good value
-        return last_lux_reading;
-    }
-    
-    // Check if we need to adjust settings for very bright light
-    if (raw_als > 10000) {
-        // Light is very bright, reduce sensitivity
-        veml7700_set_gain(VEML7700_GAIN_1_8);
-        veml7700_set_integration_time(VEML7700_IT_25MS);
-        
-        // Wait for integration using optimized delay
-        wait_for_integration();
-        
-        lux = veml7700_get_lux();
-        raw_als = veml7700_read_als();
-    }
-    
-    // Check if we need to adjust settings for very low light
-    if (raw_als < 100 && raw_als > 0) {
-        // Light is very dim, increase sensitivity
-        veml7700_set_gain(VEML7700_GAIN_2);
-        veml7700_set_integration_time(VEML7700_IT_800MS);
-        
-        // Wait for integration using optimized delay
-        wait_for_integration();
-        
-        lux = veml7700_get_lux();
-    }
-    
-    // Store the reading
-    last_lux_reading = lux;
-    
-    return lux;
-}
+ #include <avr/io.h>
+ #include <util/delay.h> // For _delay_ms()
+ #include <math.h>       // For powf
+ #include "veml7700.h"
+ #include "i2c.h"
+ 
+ // Global variable to store the last successful lux reading
+ float last_lux_reading = 0.0f;
+ 
+ // Current sensor settings, cached locally
+ static uint16_t current_config_reg = VEML7700_GAIN_1_8 | VEML7700_IT_100MS | VEML7700_PERS_1 | VEML7700_POWER_ON;
+ static uint16_t current_gain_val = VEML7700_GAIN_1_8;
+ static uint16_t current_it_val = VEML7700_IT_100MS;
+ 
+ /**
+  * @brief Write a 16-bit value to a VEML7700 register.
+  */
+ static uint8_t veml7700_write_word_to_register(uint8_t reg, uint16_t value) {
+     uint8_t data[2];
+     data[0] = value & 0xFF;         // Low byte
+     data[1] = (value >> 8) & 0xFF;  // High byte
+     return i2c_write(VEML7700_I2C_ADDR, reg, data, 2);
+ }
+ 
+ /**
+  * @brief Read a 16-bit value from a VEML7700 register.
+  */
+ static uint8_t veml7700_read_word_from_register(uint8_t reg, uint16_t *value) {
+     uint8_t data[2];
+     uint8_t error = i2c_read(VEML7700_I2C_ADDR, reg, data, 2);
+     if (error == 0) {
+         *value = ((uint16_t)data[1] << 8) | data[0]; // Low byte first, then high byte
+     } else {
+         *value = 0xFFFF; // Indicate error
+     }
+     return error;
+ }
+ 
+ /**
+  * @brief Initialize the VEML7700 sensor.
+  */
+ uint8_t veml7700_init(void) {
+     // Default configuration: Gain 1/8, IT 100ms, Persistence 1, Power ON
+     current_gain_val = VEML7700_GAIN_1_8;
+     current_it_val = VEML7700_IT_100MS;
+     current_config_reg = current_gain_val | current_it_val | VEML7700_PERS_1 | VEML7700_POWER_ON;
+     
+     uint8_t error = veml7700_write_word_to_register(VEML7700_REG_CONFIG, current_config_reg);
+     if (error) return error;
+ 
+     error = veml7700_write_word_to_register(VEML7700_REG_PSM, 0x0000); // Ensure PSM is off
+     if (error) return error;
+     
+     _delay_ms(5); // Allow sensor to stabilize after initial config (datasheet recommends >2.5ms after power on)
+     return 0; // Success
+ }
+ 
+ /**
+  * @brief Read the raw ALS value.
+  */
+ uint8_t veml7700_read_als_raw(uint16_t *raw_value) {
+     return veml7700_read_word_from_register(VEML7700_REG_ALS, raw_value);
+ }
+ 
+ /**
+  * @brief Get integration time in milliseconds for delay calculation.
+  */
+ static uint16_t get_integration_time_ms(uint16_t it_setting) {
+     switch (it_setting) {
+         case VEML7700_IT_25MS:  return 25;
+         case VEML7700_IT_50MS:  return 50;
+         case VEML7700_IT_100MS: return 100;
+         case VEML7700_IT_200MS: return 200;
+         case VEML7700_IT_400MS: return 400;
+         case VEML7700_IT_800MS: return 800;
+         default: return 100; // Default to 100ms
+     }
+ }
+ 
+ /**
+  * @brief Perform a delay based on integration time.
+  */
+ static void wait_for_current_integration(void) {
+     uint16_t delay_ms = get_integration_time_ms(current_it_val);
+     // Add a small buffer (e.g., 5-10ms or a percentage) to ensure integration is complete.
+     // Datasheet: "The ALS conversion time depends on the programmed integration time."
+     // "After the ALS command register is written, the result can be read out after the programmed integration time."
+     // A small extra delay is prudent.
+     delay_ms += (delay_ms / 10) + 5; // Add 10% + 5ms, e.g. 800ms -> 800 + 80 + 5 = 885ms
+ 
+     if (delay_ms == 0) return;
+ 
+     // _delay_ms can only handle up to 262.14 ms / F_CPU_MHZ. For 4MHz, it's ~65ms.
+     // Need to loop for longer delays.
+     for (uint16_t i = 0; i < delay_ms; i++) {
+         _delay_ms(1);
+     }
+ }
+ 
+ 
+ /**
+  * @brief Set the gain of the sensor.
+  */
+ uint8_t veml7700_set_gain(uint16_t gain_setting) {
+     current_config_reg = (current_config_reg & ~VEML7700_GAIN_MASK) | gain_setting;
+     current_gain_val = gain_setting;
+     return veml7700_write_word_to_register(VEML7700_REG_CONFIG, current_config_reg);
+ }
+ 
+ /**
+  * @brief Set the integration time of the sensor.
+  */
+ uint8_t veml7700_set_integration_time(uint16_t it_setting) {
+     current_config_reg = (current_config_reg & ~VEML7700_IT_MASK) | it_setting;
+     current_it_val = it_setting;
+     return veml7700_write_word_to_register(VEML7700_REG_CONFIG, current_config_reg);
+ }
+ 
+ /**
+  * @brief Convert raw ALS value to lux.
+  */
+ float veml7700_convert_to_lux(uint16_t raw_als) {
+     float resolution; // lux per count
+     float lux;
+ 
+     // Determine resolution based on gain and integration time
+     // These values are from the VEML7700 datasheet application note/examples
+     // The base resolution is for Gain x1, IT 100ms.
+     // Example: For IT 100ms, Gain x1, resolution is 0.0576 lux/count
+     // Lux = RawALS * Resolution_Factor * (Default_IT / Actual_IT) * (Default_Gain_Multiplier / Actual_Gain_Multiplier)
+ 
+     // Let's use the table from the datasheet for resolution values.
+     // Gain | IT (ms) | Resolution (lux/step)
+     //---------------------------------------
+     // x2   | 800     | 0.0036
+     // x1   | 800     | 0.0072
+     // x1/4 | 800     | 0.0288
+     // x1/8 | 800     | 0.0576
+     // ... and scale by IT. For example, for IT 100ms, multiply above by 8.
+ 
+     float gain_factor_mult = 1.0f;
+     if (current_gain_val == VEML7700_GAIN_1) gain_factor_mult = 1.0f;
+     else if (current_gain_val == VEML7700_GAIN_2) gain_factor_mult = 0.5f; // Gain x2 means each count is worth half as much lux
+     else if (current_gain_val == VEML7700_GAIN_1_4) gain_factor_mult = 4.0f;
+     else if (current_gain_val == VEML7700_GAIN_1_8) gain_factor_mult = 8.0f;
+ 
+     float it_factor_mult = 1.0f; // Relative to 100ms
+     uint16_t it_ms = get_integration_time_ms(current_it_val);
+     if (it_ms > 0) {
+         it_factor_mult = 100.0f / (float)it_ms;
+     }
+ 
+     // Base resolution for Gain x1/8, IT 100ms is often stated around 0.0576 * (1/8 gain factor) = 0.4608
+     // Or, more simply, use the max lux for each setting.
+     // Max lux = Resolution * 65535.
+     // The datasheet provides a formula: Lux = (ALS_Counts / (Gain_Factor * Integration_Time_Factor)) * Magic_Number
+     // A common approach is to find the resolution for a known setting (e.g., Gain 1/8, IT 100ms)
+     // and then scale.
+     // Resolution for G=1/8, IT=100ms is 0.0576 lux/count according to some sources.
+     // This implies for G=1, IT=100ms, resolution = 0.0576 / 8 = 0.0072 lux/count.
+ 
+     resolution = 0.0072f; // Base resolution for Gain x1, IT 100ms.
+ 
+     lux = (float)raw_als * resolution * (1.0f / gain_factor_mult) * (1.0f / it_factor_mult);
+     
+     return lux;
+ }
+ 
+ 
+ /**
+  * @brief Enable power save mode.
+  */
+ uint8_t veml7700_power_save_enable(uint16_t psm_mode) {
+     return veml7700_write_word_to_register(VEML7700_REG_PSM, VEML7700_PSM_EN | psm_mode);
+ }
+ 
+ /**
+  * @brief Disable power save mode.
+  */
+ uint8_t veml7700_power_save_disable(void) {
+     uint8_t error = veml7700_write_word_to_register(VEML7700_REG_PSM, 0x0000); // Disable PSM
+     _delay_ms(3); // Datasheet: Min 2.5ms wake-up time from PSM
+     return error;
+ }
+ 
+ /**
+  * @brief Puts the VEML7700 sensor into shutdown mode.
+  */
+ uint8_t veml7700_shutdown(void) {
+     current_config_reg |= VEML7700_SHUTDOWN;
+     return veml7700_write_word_to_register(VEML7700_REG_CONFIG, current_config_reg);
+ }
+ 
+ /**
+  * @brief Powers on the VEML7700 sensor from shutdown mode.
+  */
+ uint8_t veml7700_power_on(void) {
+     current_config_reg &= ~VEML7700_SHUTDOWN;
+     uint8_t error = veml7700_write_word_to_register(VEML7700_REG_CONFIG, current_config_reg);
+     _delay_ms(3); // Datasheet: Min 2.5ms wake-up time from SD
+     return error;
+ }
+ 
+ 
+ /**
+  * @brief Measure light with automatic gain and integration time adjustment.
+  */
+ float measure_light_auto_adjust(void) {
+     uint16_t raw_als;
+     uint8_t error;
+     float lux_val;
+ 
+     // Ensure sensor is powered on from general shutdown
+     error = veml7700_power_on(); 
+     if (error) return -1.0f; // I2C error during power on
+ 
+     // Start with a moderate sensitivity setting
+     veml7700_set_gain(VEML7700_GAIN_1_8);
+     veml7700_set_integration_time(VEML7700_IT_100MS);
+     wait_for_current_integration();
+     error = veml7700_read_als_raw(&raw_als);
+     if (error) return -2.0f; // I2C error reading ALS
+ 
+     // Auto-ranging logic
+     // If saturated (counts near max), decrease sensitivity
+     if (raw_als > 60000) { // High saturation threshold
+         if (current_it_val != VEML7700_IT_25MS) {
+             veml7700_set_integration_time(VEML7700_IT_25MS);
+         } else if (current_gain_val != VEML7700_GAIN_1_8) { // Should already be 1/8 if IT is 25ms
+              veml7700_set_gain(VEML7700_GAIN_1_8); // Lowest gain
+         }
+         wait_for_current_integration();
+         error = veml7700_read_als_raw(&raw_als);
+         if (error) return -3.0f;
+     } 
+     // If too low (counts very small), increase sensitivity
+     else if (raw_als < 1000) { // Low light threshold
+         if (current_it_val != VEML7700_IT_800MS) {
+             veml7700_set_integration_time(VEML7700_IT_800MS);
+         } else if (current_gain_val != VEML7700_GAIN_2) {
+             veml7700_set_gain(VEML7700_GAIN_2); // Highest gain
+         }
+         wait_for_current_integration();
+         error = veml7700_read_als_raw(&raw_als);
+         if (error) return -4.0f;
+     }
+ 
+     lux_val = veml7700_convert_to_lux(raw_als);
+     
+     if (lux_val >= 0) { // Check if conversion was valid
+         last_lux_reading = lux_val;
+     }
+     return lux_val;
+ }
+ 

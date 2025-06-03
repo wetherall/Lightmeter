@@ -1,89 +1,67 @@
-/**
- * EEPROM Interface
- * 
- * This header file defines functions for reading from and writing to
- * the ATtiny3216's internal EEPROM memory. This allows the light meter
- * to remember settings between power cycles.
- */
-
 #ifndef EEPROM_H
 #define EEPROM_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
-/* EEPROM memory address constants */
-#define EEPROM_START 0x1400        // EEPROM start address for ATtiny3216
-#define EEPROM_FIRST_RUN_ADDR 0    // Address for the first-run flag
-#define EEPROM_ISO_ADDR 1          // Address for the ISO setting (16-bit)
-#define EEPROM_APERTURE_ADDR 3     // Address for the aperture setting (32-bit float)
-#define EEPROM_BRIGHTNESS_ADDR 7   // Address for the brightness setting (8-bit)
-
-/**
- * FUNCTION DECLARATIONS
- */
+// EEPROM Addresses for settings
+#define EEPROM_FIRST_RUN_ADDR    0x00 // Byte to check if settings were ever saved
+#define EEPROM_ISO_ADDR          0x01 // 2 bytes for ISO (uint16_t)
+#define EEPROM_APERTURE_ADDR     0x03 // 4 bytes for aperture (float)
+#define EEPROM_BRIGHTNESS_ADDR   0x07 // 1 byte for brightness (uint8_t) - now binary
 
 /**
- * Write a single byte to EEPROM
- * 
- * @param addr - The address within EEPROM to write to
- * @param data - The byte to write
+ * @brief Write a single byte to EEPROM.
+ * @param addr EEPROM address (0 to EEPROM_SIZE-1).
+ * @param data Byte to write.
  */
 void eeprom_write_byte(uint16_t addr, uint8_t data);
 
 /**
- * Read a single byte from EEPROM
- * 
- * @param addr - The address within EEPROM to read from
- * @return The byte read from EEPROM
+ * @brief Read a single byte from EEPROM.
+ * @param addr EEPROM address.
+ * @return uint8_t Byte read from EEPROM.
  */
 uint8_t eeprom_read_byte(uint16_t addr);
 
 /**
- * Write a 16-bit word to EEPROM
- * 
- * @param addr - The address within EEPROM to write to
- * @param data - The 16-bit word to write
+ * @brief Write a 16-bit word to EEPROM.
+ * @param addr Starting EEPROM address.
+ * @param data Word to write.
  */
 void eeprom_write_word(uint16_t addr, uint16_t data);
 
 /**
- * Read a 16-bit word from EEPROM
- * 
- * @param addr - The address within EEPROM to read from
- * @return The 16-bit word read from EEPROM
+ * @brief Read a 16-bit word from EEPROM.
+ * @param addr Starting EEPROM address.
+ * @return uint16_t Word read from EEPROM.
  */
 uint16_t eeprom_read_word(uint16_t addr);
 
 /**
- * Write a floating-point value to EEPROM
- * 
- * @param addr - The address within EEPROM to write to
- * @param data - The floating-point value to write
+ * @brief Write a float value to EEPROM.
+ * @param addr Starting EEPROM address.
+ * @param data Float value to write.
  */
 void eeprom_write_float(uint16_t addr, float data);
 
 /**
- * Read a floating-point value from EEPROM
- * 
- * @param addr - The address within EEPROM to read from
- * @return The floating-point value read from EEPROM
+ * @brief Read a float value from EEPROM.
+ * @param addr Starting EEPROM address.
+ * @return float Float value read from EEPROM.
  */
 float eeprom_read_float(uint16_t addr);
 
 /**
- * Save current settings to EEPROM
- * 
- * This function saves the current ISO, aperture, and brightness settings
- * to EEPROM for retrieval on next power-up.
+ * @brief Save current settings (ISO, aperture, brightness) to EEPROM.
+ * Only writes if settings have changed to preserve EEPROM life.
  */
-void save_settings(void);
+void save_settings_to_eeprom(void);
 
 /**
- * Load settings from EEPROM
- * 
- * This function loads and validates ISO, aperture, and brightness
- * settings from EEPROM. If no valid settings are found, defaults are used.
+ * @brief Load settings from EEPROM into global variables.
+ * If no settings are found (first run), uses default values and saves them.
  */
-void load_settings(void);
+void load_settings_from_eeprom(void);
 
-#endif /* EEPROM_H */
+#endif // EEPROM_H
