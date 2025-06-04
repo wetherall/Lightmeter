@@ -63,26 +63,27 @@
  #define ISO_BLINK_INTERVAL_MS 500    
  #define SECONDS_BLINK_INTERVAL_MS 250 
  
- // Button Pins (as per README)
- // PA1: Mode Button
- // PA2: Up Button
- // PA3: Read/Wake Button
- // PA4: Down Button
- 
- #define MODE_BUTTON_PORT PORTA
- #define UP_BUTTON_PORT   PORTA
- #define READ_BUTTON_PORT PORTA
- #define DOWN_BUTTON_PORT PORTA
- 
- #define MODE_BUTTON_PIN_CTRL PIN1CTRL 
- #define UP_BUTTON_PIN_CTRL   PIN2CTRL
- #define READ_BUTTON_PIN_CTRL PIN3CTRL
- #define DOWN_BUTTON_PIN_CTRL PIN4CTRL
- 
- #define MODE_BUTTON_PIN_bm PIN1_bm
- #define UP_BUTTON_PIN_bm   PIN2_bm
- #define READ_BUTTON_PIN_bm PIN3_bm
- #define DOWN_BUTTON_PIN_bm PIN4_bm
+// Button Pins (UPDATED - Read/Wake moved to PA2 for power-down wake capability)
+// PA1: Mode Button
+// PA2: Read/Wake Button (MOVED from PA3 - PA2 can wake from power-down sleep)
+// PA3: Up Button (MOVED from PA2)  
+// PA4: Down Button
+
+#define MODE_BUTTON_PORT PORTA
+#define READ_BUTTON_PORT PORTA  // Now PA2
+#define UP_BUTTON_PORT   PORTA  // Now PA3
+#define DOWN_BUTTON_PORT PORTA
+
+#define MODE_BUTTON_PIN_CTRL PIN1CTRL 
+#define READ_BUTTON_PIN_CTRL PIN2CTRL  // Changed from PIN3CTRL
+#define UP_BUTTON_PIN_CTRL   PIN3CTRL  // Changed from PIN2CTRL
+#define DOWN_BUTTON_PIN_CTRL PIN4CTRL
+
+#define MODE_BUTTON_PIN_bm PIN1_bm
+#define READ_BUTTON_PIN_bm PIN2_bm     // Changed from PIN3_bm
+#define UP_BUTTON_PIN_bm   PIN3_bm     // Changed from PIN2_bm
+#define DOWN_BUTTON_PIN_bm PIN4_bm
+
  
  
  // --- Function Prototypes ---
@@ -97,22 +98,22 @@
  
  // --- Initialization Functions ---
  static void init_gpio_pins(void) {
-     // Button Pins as inputs with pull-ups and falling edge interrupt
-     MODE_BUTTON_PORT.DIRCLR = MODE_BUTTON_PIN_bm;
-     UP_BUTTON_PORT.DIRCLR = UP_BUTTON_PIN_bm;
-     READ_BUTTON_PORT.DIRCLR = READ_BUTTON_PIN_bm;
-     DOWN_BUTTON_PORT.DIRCLR = DOWN_BUTTON_PIN_bm;
- 
-     // Corrected access to PINnCTRL registers
-     PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // For Mode Button (PA1)
-     PORTA.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // For Up Button (PA2)
-     PORTA.PIN3CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // For Read Button (PA3)
-     PORTA.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // For Down Button (PA4)
-     
-     // UPDI Pin (PA0)
-     PORTA.DIRCLR = PIN0_bm; 
-     PORTA.PIN0CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
- }
+    // Button Pins as inputs with pull-ups and falling edge interrupt
+    MODE_BUTTON_PORT.DIRCLR = MODE_BUTTON_PIN_bm;
+    READ_BUTTON_PORT.DIRCLR = READ_BUTTON_PIN_bm;  // PA2 now
+    UP_BUTTON_PORT.DIRCLR = UP_BUTTON_PIN_bm;      // PA3 now
+    DOWN_BUTTON_PORT.DIRCLR = DOWN_BUTTON_PIN_bm;
+
+    // Update PINnCTRL registers with new assignments
+    PORTA.PIN1CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // Mode Button (PA1) - unchanged
+    PORTA.PIN2CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // Read/Wake Button (PA2) - CHANGED
+    PORTA.PIN3CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // Up Button (PA3) - CHANGED  
+    PORTA.PIN4CTRL = PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // Down Button (PA4) - unchanged
+    
+    // UPDI Pin (PA0) - unchanged
+    PORTA.DIRCLR = PIN0_bm; 
+    PORTA.PIN0CTRL = PORT_PULLUPEN_bm | PORT_ISC_INPUT_DISABLE_gc;
+}
  
  static void init_system_timer_tcb0(void) {
      TCB0.CTRLB = TCB_CNTMODE_INT_gc;    
@@ -231,49 +232,54 @@
  }
  
  ISR(PORTA_PORT_vect) { 
-     uint32_t time_now;
-     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-         time_now = current_time_ms;
-     }
-     
-     static volatile uint32_t last_mode_press_time = 0;
-     static volatile uint32_t last_up_press_time = 0;
-     static volatile uint32_t last_read_press_time = 0;
-     static volatile uint32_t last_down_press_time = 0;
- 
-     if (PORTA.INTFLAGS & MODE_BUTTON_PIN_bm) {
-         PORTA.INTFLAGS = MODE_BUTTON_PIN_bm; 
-         if ((time_now - last_mode_press_time) >= DEBOUNCE_TIME_MS) {
-             mode_button_flag = true;
-             last_activity_time_ms = time_now;
-             last_mode_press_time = time_now;
-         }
-     }
-     if (PORTA.INTFLAGS & UP_BUTTON_PIN_bm) {
-         PORTA.INTFLAGS = UP_BUTTON_PIN_bm;
-         if ((time_now - last_up_press_time) >= DEBOUNCE_TIME_MS) {
-             up_button_flag = true;
-             last_activity_time_ms = time_now;
-             last_up_press_time = time_now;
-         }
-     }
-     if (PORTA.INTFLAGS & READ_BUTTON_PIN_bm) {
-         PORTA.INTFLAGS = READ_BUTTON_PIN_bm;
-         if ((time_now - last_read_press_time) >= DEBOUNCE_TIME_MS) {
-             wake_button_flag = true; 
-             last_activity_time_ms = time_now;
-             last_read_press_time = time_now;
-         }
-     }
-     if (PORTA.INTFLAGS & DOWN_BUTTON_PIN_bm) {
-         PORTA.INTFLAGS = DOWN_BUTTON_PIN_bm;
-         if ((time_now - last_down_press_time) >= DEBOUNCE_TIME_MS) {
-             down_button_flag = true;
-             last_activity_time_ms = time_now;
-             last_down_press_time = time_now;
-         }
-     }
- }
+    uint32_t time_now;
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        time_now = current_time_ms;
+    }
+    
+    static volatile uint32_t last_mode_press_time = 0;
+    static volatile uint32_t last_read_press_time = 0;  // Now for PA2
+    static volatile uint32_t last_up_press_time = 0;    // Now for PA3
+    static volatile uint32_t last_down_press_time = 0;
+
+    if (PORTA.INTFLAGS & MODE_BUTTON_PIN_bm) {
+        PORTA.INTFLAGS = MODE_BUTTON_PIN_bm; 
+        if ((time_now - last_mode_press_time) >= DEBOUNCE_TIME_MS) {
+            mode_button_flag = true;
+            last_activity_time_ms = time_now;
+            last_mode_press_time = time_now;
+        }
+    }
+    
+    // READ BUTTON NOW ON PA2 (was PA3)
+    if (PORTA.INTFLAGS & READ_BUTTON_PIN_bm) {  // Now PIN2_bm
+        PORTA.INTFLAGS = READ_BUTTON_PIN_bm;    // Now PIN2_bm
+        if ((time_now - last_read_press_time) >= DEBOUNCE_TIME_MS) {
+            wake_button_flag = true; 
+            last_activity_time_ms = time_now;
+            last_read_press_time = time_now;
+        }
+    }
+    
+    // UP BUTTON NOW ON PA3 (was PA2)  
+    if (PORTA.INTFLAGS & UP_BUTTON_PIN_bm) {    // Now PIN3_bm
+        PORTA.INTFLAGS = UP_BUTTON_PIN_bm;      // Now PIN3_bm
+        if ((time_now - last_up_press_time) >= DEBOUNCE_TIME_MS) {
+            up_button_flag = true;
+            last_activity_time_ms = time_now;
+            last_up_press_time = time_now;
+        }
+    }
+    
+    if (PORTA.INTFLAGS & DOWN_BUTTON_PIN_bm) {
+        PORTA.INTFLAGS = DOWN_BUTTON_PIN_bm;
+        if ((time_now - last_down_press_time) >= DEBOUNCE_TIME_MS) {
+            down_button_flag = true;
+            last_activity_time_ms = time_now;
+            last_down_press_time = time_now;
+        }
+    }
+}
  
  
  // --- Main Application Logic ---

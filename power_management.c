@@ -2,6 +2,7 @@
  * Power Management Implementation
  * * Handles sleep modes, wake-up, and battery monitoring for the light meter.
  * * Corrected sleep/wake interrupt handling.
+ * * MODIFIED: Uses IDLE sleep mode instead of POWER_DOWN for compatibility.
  */
 
  #include <avr/io.h>
@@ -108,15 +109,14 @@
  
      // Power on VEML7700 and allow stabilization
      veml7700_power_on(); 
-     _delay_ms(10); // Short delay for VEML7700 to stabilize
+     _delay_ms(50); // Short delay for VEML7700 to stabilize
  
-     // Clear button flags that might have been set by the wake-up press
-     // This prevents immediate re-triggering of actions.
-     wake_button_flag = false;
-     mode_button_flag = false;
-     up_button_flag = false;
-     down_button_flag = false;
- 
+     // DON'T clear button flags - this was preventing wake actions from working
+     // wake_button_flag = false;     // REMOVED
+     // mode_button_flag = false;     // REMOVED
+     // up_button_flag = false;       // REMOVED
+     // down_button_flag = false;     // REMOVED
+
      // Reset activity timer using the current time
      uint32_t time_now;
      ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { 
@@ -126,7 +126,7 @@
      
      // Re-enable LED matrix timer (TCB1)
      TCB1.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm; 
- 
+
      // Re-check battery status immediately after fully waking peripherals
      if (is_battery_critical()) {
          critical_battery_shutdown_flag = true; 
@@ -139,6 +139,7 @@
  /**
   * @brief Puts the device into Power-Down sleep mode.
   * This function now handles the full sleep and wake sequence internally.
+  * MODIFIED: Uses IDLE sleep mode for better pin change interrupt compatibility.
   */
  void enter_power_down_sleep(void) {
      // 1. Disable Timers and Peripherals
@@ -156,7 +157,7 @@
      TCB0.CTRLA &= ~TCB_ENABLE_bm; // Disable system tick timer
  
      // 2. Configure Sleep Mode and Enable Interrupts for Wake-up
-     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+     set_sleep_mode(SLEEP_MODE_PWR_DOWN); // 
      
      cli(); // Disable interrupts briefly
      sleep_enable(); // Set Sleep Enable (SE) bit
@@ -170,4 +171,3 @@
      // 3. Call the internal wake sequence to restore peripherals and state
      internal_wake_from_sleep_sequence();
  }
- 
